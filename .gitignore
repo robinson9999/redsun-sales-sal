@@ -1,0 +1,8 @@
+# Kết quả build và danh sách mật khẩu: KHÔNG commit
+ban-phat-hanh/
+danh-sach-mat-khau*.csv
+# Danh sách tài khoản thật (chỉ giữ file mẫu)
+tai-khoan*.csv
+!tai-khoan-mau.csv
+node_modules/
+.DS_Store

@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>REDSUN - Quy Chế Lương & Bảng Tính Thu Nhập Kinh Doanh (v2 - Hiện hành & Đề xuất)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        colors: {
+          redsun: { 50:'#FEF2F2',100:'#FEE2E2',200:'#FECACA',500:'#EF4444',600:'#DC2626',700:'#B91C1C',800:'#991B1B',900:'#7F1D1D',950:'#450A0A' },
+          gold: { 50:'#FFFBEB',100:'#FEF3C7',300:'#FCD34D',400:'#FBBF24',500:'#F59E0B',600:'#D97706',700:'#B45309',800:'#92400E',900:'#78350F' }
+        },
+        fontFamily: { sans: ['"Be Vietnam Pro"','Inter','sans-serif'] }
+      } }
+    }
+  </script>
+  <style>
+    input[type=range]{accent-color:#DC2626}
+    .tick{position:absolute;transform:translateX(-50%);white-space:nowrap}
+    .tick:first-child{transform:none}
+    .tick:last-child{transform:translateX(-100%)}
+    @media print{
+      .no-print{display:none!important}
+      .print-only{display:block!important}
+      body{background:#fff!important;color:#000!important}
+      #tab-content-calc{display:block!important}
+      #tab-content-policy{display:none!important}
+      .print-shadow-none{box-shadow:none!important;border:1px solid #cbd5e1!important}
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen flex flex-col">
+
+<!-- ================= HEADER ================= -->
+<header class="bg-gradient-to-r from-redsun-950 via-slate-900 to-redsun-900 text-white shadow-xl sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-20 gap-3">
+      <div class="flex items-center space-x-3 sm:space-x-5 min-w-0">
+        <img src="redsun-logo-2.png" alt="Redsun" class="h-10 sm:h-12 w-auto object-contain max-w-[180px]"
+             onerror="this.onerror=null;this.style.display='none';document.getElementById('logo-fallback').style.display='flex';">
+        <div id="logo-fallback" style="display:none" class="items-baseline font-black text-2xl tracking-tight">
+          <span class="text-redsun-500">red</span><span class="text-gold-400">sun</span>
+        </div>
+        <div class="h-10 w-px bg-slate-700/60 hidden md:block"></div>
+        <div class="min-w-0">
+          <span class="text-xs sm:text-base font-extrabold tracking-wide uppercase block truncate">CÔNG TY ĐẦU TƯ CÔNG NGHỆ REDSUN</span>
+          <p class="text-[11px] sm:text-xs text-gold-400 italic font-bold">For Growth Together <span class="not-italic font-medium text-slate-400 hidden sm:inline">• Khối Kinh Doanh & Quản Trị Nhân Sự</span></p>
+        </div>
+      </div>
+      <!-- Chọn phương án -->
+      <div class="no-print flex items-center gap-2">
+        <span class="hidden lg:inline text-xs text-slate-300">Phương án:</span>
+        <div class="inline-flex rounded-xl bg-white/10 p-1 border border-white/20">
+          <button id="mode-btn-cur" onclick="setMode('cur')" class="px-3 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition">Hiện hành</button>
+          <button id="mode-btn-prop" onclick="setMode('prop')" class="px-3 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition">Đề xuất</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="no-print bg-redsun-900/60 border-t border-redsun-700/50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <nav class="flex space-x-6 sm:space-x-8">
+        <button id="tab-btn-policy" onclick="switchTab('policy')" class="py-3 px-2 border-b-2 font-semibold text-sm transition">1. Quy Chế & Khung Định Mức</button>
+        <button id="tab-btn-calc" onclick="switchTab('calc')" class="py-3 px-2 border-b-2 font-semibold text-sm transition">2. Bảng Tính Lương (Simulator)</button>
+      </nav>
+    </div>
+  </div>
+</header>
+
+<main class="flex-grow py-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+
+  <!-- ================= TAB 1: QUY CHẾ ================= -->
+  <div id="tab-content-policy" class="space-y-8">
+
+    <div class="bg-gradient-to-br from-white via-redsun-50 to-amber-50 rounded-3xl p-6 sm:p-8 border border-redsun-100 shadow-sm">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-redsun-100 text-redsun-800 text-xs font-bold uppercase tracking-wider mb-3">
+        <span>REDSUN</span><span class="w-1.5 h-1.5 rounded-full bg-redsun-600"></span>
+        <span id="policy-mode-chip">Phương án hiện hành</span>
+      </div>
+      <h1 class="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 tracking-tight mb-3">Quy Chế Lương, Thưởng & Giao KPI Doanh Số Kinh Doanh</h1>
+      <p id="policy-intro" class="text-slate-600 text-sm sm:text-base leading-relaxed"></p>
+    </div>
+
+    <!-- Điểm thay đổi (chỉ hiện ở chế độ Đề xuất) -->
+    <div id="changes-panel" class="hidden bg-white rounded-2xl border-2 border-emerald-300 shadow-sm p-6">
+      <h3 class="font-black text-emerald-800 text-lg mb-3">Những điểm thay đổi so với phương án hiện hành</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-700">
+        <div class="p-4 bg-emerald-50/60 rounded-xl"><b class="text-slate-900">1. Hoa hồng lũy tiến từng phần.</b> Mỗi tỷ lệ chỉ áp cho phần doanh số nằm trong khoảng của nó. Thu nhập tăng liên tục theo doanh số, không còn "điểm gãy" ở mốc 50%, 70%, 100%, 120%, nên không còn động cơ dồn hoặc treo đơn. Thưởng khi đạt đúng 100% giữ nguyên 8% × K_cn.</div>
+        <div class="p-4 bg-emerald-50/60 rounded-xl"><b class="text-slate-900">2. Hệ số X theo cấp bậc.</b> CCO ×3, SM ×4, Team Lead ×6, Senior/Sales ×10, Fresher ×7. Quản lý tập trung dẫn dắt đội thay vì giành khách, còn Fresher có target phù hợp năng lực.</div>
+        <div class="p-4 bg-emerald-50/60 rounded-xl"><b class="text-slate-900">3. Thưởng quản lý theo % đạt đơn vị, có ngưỡng & chốt chặn.</b> Target đơn vị = target cá nhân QL + target đội. % đạt đơn vị = [min(DS cá nhân QL, target cá nhân) + DS đội] ÷ target đơn vị, dùng cho cả B và mức thưởng C₂. Dưới 70% thì C₂ = 0. C₂ chỉ nhân với <b>doanh số của đội</b>; doanh số cá nhân QL chỉ nhận C₁, không tính hoa hồng hai lần. Phần QL bán vượt target cá nhân không được dùng để "kéo" % đơn vị (vẫn được trả qua C₁).</div>
+        <div class="p-4 bg-emerald-50/60 rounded-xl"><b class="text-slate-900">4. Hoa hồng CTV theo doanh số tuyệt đối.</b> 12% / 15% / 18% / 15% theo bậc 20tr / 50tr / 100tr. Chi phí trên mỗi đồng doanh thu của CTV luôn thấp hơn nhân viên chính thức, nên không còn động cơ đẩy đơn qua CTV.</div>
+      </div>
+    </div>
+
+    <!-- Bảng khung lương -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 bg-slate-900 text-white">
+        <h3 class="font-bold text-lg">Khung Dải Lương (Salary Range) & Định Mức KPI 7 Vị Trí</h3>
+        <p id="table-sub" class="text-xs text-slate-400"></p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs sm:text-sm">
+          <thead class="bg-slate-100 text-slate-800 font-bold uppercase tracking-wider text-[11px] border-b">
+            <tr>
+              <th class="py-3.5 px-4">Vị trí chức danh</th>
+              <th class="py-3.5 px-4">Dải Tổng Lương (W)</th>
+              <th class="py-3.5 px-4">Cơ cấu CB - HS</th>
+              <th class="py-3.5 px-4">Lương CB (S)</th>
+              <th class="py-3.5 px-4">Lương HS (H)</th>
+              <th class="py-3.5 px-4">Hệ số X</th>
+              <th class="py-3.5 px-4">KPI Cá Nhân (K_cn)</th>
+              <th class="py-3.5 px-4">KPI Đơn Vị (K_ql)</th>
+            </tr>
+          </thead>
+          <tbody id="range-tbody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3 bảng hoa hồng -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <div class="pb-3 mb-3 border-b border-slate-100">
+          <h4 class="font-bold text-slate-900">Hoa Hồng Cá Nhân Chính Thức (C_cn)</h4>
+          <p id="ccn-sub" class="text-[11px] text-slate-400"></p>
+        </div>
+        <table class="w-full text-xs"><tbody id="ccn-tbody" class="divide-y divide-slate-100"></tbody></table>
+        <p id="ccn-note" class="text-[11px] text-slate-500 mt-3 pt-2 border-t border-slate-100"></p>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border-2 border-gold-400 shadow-sm">
+        <div class="pb-3 mb-3 border-b border-slate-100">
+          <h4 class="font-bold text-slate-900">Hoa Hồng Cộng Tác Viên (CTV)</h4>
+          <p id="ctv-sub" class="text-[11px] text-gold-700 font-medium"></p>
+        </div>
+        <table class="w-full text-xs"><tbody id="ctv-tbody" class="divide-y divide-slate-100"></tbody></table>
+        <p id="ctv-note" class="text-[11px] text-gold-800 mt-3 pt-2 border-t border-slate-100"></p>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <div class="pb-3 mb-3 border-b border-slate-100">
+          <h4 class="font-bold text-slate-900">Thưởng Quản Lý Phòng/Khối (C_ql)</h4>
+          <p id="cql-sub" class="text-[11px] text-slate-400"></p>
+        </div>
+        <table class="w-full text-xs">
+          <thead><tr class="bg-slate-50 text-slate-600 font-semibold border-b">
+            <th class="py-2 px-1 text-left">% Đạt KPI Đội</th><th class="py-2 px-1 text-center">CCO</th><th class="py-2 px-1 text-center">SM</th><th class="py-2 px-1 text-right">Team Lead</th>
+          </tr></thead>
+          <tbody id="cql-tbody" class="divide-y divide-slate-100"></tbody>
+        </table>
+        <p id="cql-note" class="text-[11px] text-slate-500 mt-3 pt-2 border-t border-slate-100"></p>
+      </div>
+    </div>
+
+    <!-- Quy định bổ sung (đề xuất) -->
+    <div id="rules-panel" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <h3 class="font-bold text-slate-900 text-lg mb-3">Quy định bổ sung (đề xuất áp dụng kèm)</h3>
+      <ul class="list-disc pl-5 space-y-2 text-sm text-slate-700">
+        <li><b>Cơ sở tính thưởng:</b> doanh số tính hoa hồng là <b>doanh thu thực thu</b> trong kỳ. Đơn bị hủy hoặc hoàn tiền trong 90 ngày sẽ bị thu hồi hoa hồng ở kỳ lương kế tiếp. Về dài hạn, nên chuyển sang tính trên lợi nhuận gộp cho các sản phẩm có biên lợi nhuận khác nhau.</li>
+        <li><b>Trần chồng tầng:</b> tổng hoa hồng chi cho một đồng doanh thu, gồm người bán, TL, SM và CCO, không vượt 12%. Phần vượt trần sẽ được trừ ở tầng quản lý cao nhất.</li>
+        <li><b>Quyền sở hữu khách hàng:</b> khách hàng được gán chủ sở hữu trên CRM. Đơn của khách hàng đã có chủ không được ghi nhận cho CTV hoặc quản lý.</li>
+        <li><b>Target đội (K_đội):</b> bằng tổng K_cn của các thành viên × 1,0 đến 1,1, không gồm target cá nhân của quản lý. Target đơn vị = K_cn của QL + K_đội.</li>
+        <li><b>Lộ trình Fresher:</b> hệ số X tăng dần 5 → 6 → 7 trong 3 tháng đầu, sau đó áp dụng theo khung.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= TAB 2: SIMULATOR ================= -->
+  <div id="tab-content-calc" class="hidden space-y-8">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-4">
+      <div>
+        <h2 class="text-xl sm:text-2xl font-black text-slate-900">Bảng Tính Lương, Thưởng & Hoa Hồng Tự Động</h2>
+        <p class="text-xs sm:text-sm text-slate-500">Phương án đang xem: <b id="calc-mode-label" class="text-redsun-700">Hiện hành</b></p>
+      </div>
+      <div class="flex items-center gap-2 no-print">
+        <button onclick="resetDefaults()" class="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl">↺ Đặt Lại Mặc Định</button>
+        <button onclick="try{window.print()}catch(e){}" class="px-3.5 py-1.5 text-xs font-bold bg-redsun-700 hover:bg-redsun-800 text-white rounded-xl">🖨️ Xuất Phiếu Thu Nhập</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <div class="lg:col-span-7 space-y-6">
+
+        <!-- 1. Vị trí -->
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-5">
+          <div class="flex items-center justify-between">
+            <label class="text-sm font-bold text-slate-900">1. Chọn Chức Danh & Dải Lương:</label>
+            <span id="role-badge" class="text-xs px-2.5 py-1 rounded-full font-bold"></span>
+          </div>
+          <select id="role-select" onchange="setRole(this.value)" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-900 font-bold text-sm"></select>
+
+          <div id="salary-range-control" class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+            <div class="flex justify-between items-center text-xs">
+              <span class="font-bold text-slate-700">Mức Tổng Lương Thỏa Thuận (W):</span>
+              <span id="salary-range-display" class="font-extrabold text-redsun-700 text-base font-mono"></span>
+            </div>
+            <input type="range" id="salary-w-slider" step="500000" oninput="onW(this.value)" class="w-full">
+            <div class="flex justify-between text-[11px] text-slate-400 font-medium">
+              <span id="salary-min-label"></span><span id="salary-ratio-label" class="text-slate-600 font-semibold"></span><span id="salary-max-label"></span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <span class="text-[11px] text-slate-400 block">Lương cơ bản (S)</span>
+              <span id="calc-s-display" class="text-sm font-bold text-slate-800 font-mono"></span>
+              <span id="calc-s-ratio" class="text-[10px] text-emerald-600 block mt-0.5"></span>
+            </div>
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <span class="text-[11px] text-slate-400 block">Lương HS max (H)</span>
+              <span id="calc-h-display" class="text-sm font-bold text-slate-800 font-mono"></span>
+              <span id="calc-h-ratio" class="text-[10px] text-emerald-600 block mt-0.5"></span>
+            </div>
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div class="flex justify-between items-center">
+                <span class="text-[11px] text-slate-400">Hệ số KPI (X)</span>
+                <span id="x-default-chip" class="text-[9px] bg-redsun-100 text-redsun-800 px-1 rounded font-bold"></span>
+              </div>
+              <select id="kpi-x-select" onchange="onX(this.value)" class="mt-0.5 text-xs font-bold text-redsun-700 bg-white border border-slate-200 rounded px-1.5 py-0.5"></select>
+              <span id="x-formula" class="text-[10px] text-slate-400 block mt-0.5">K_cn = H × X</span>
+            </div>
+            <div class="p-3 bg-redsun-50/70 rounded-xl border border-redsun-200">
+              <span class="text-[11px] text-redsun-700 block font-bold">Target Cá Nhân (K_cn)</span>
+              <span id="calc-kcn-display" class="text-sm font-extrabold text-redsun-800 font-mono"></span>
+              <span id="calc-kcn-sub" class="text-[10px] text-redsun-600 block mt-0.5">Mốc chuẩn 100%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Doanh số cá nhân -->
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900">2. Doanh Số Cá Nhân Thực Tế (R_cn)</h3>
+              <p class="text-xs text-slate-500">Doanh số trực tiếp chốt trong tháng</p>
+            </div>
+            <span id="rcn-percent-badge" class="self-end sm:self-auto px-2.5 py-1 text-xs font-extrabold rounded-lg"></span>
+          </div>
+          <div class="relative">
+            <input type="text" inputmode="numeric" id="rcn-input" oninput="onRcnInput(this.value)" class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3.5 text-lg sm:text-2xl font-black text-slate-900 pr-16" placeholder="0">
+            <span class="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">VNĐ</span>
+          </div>
+          <div class="space-y-1.5">
+            <input type="range" id="rcn-slider" min="0" max="200" step="1" oninput="onRcnSlider(this.value)" class="w-full">
+            <div class="ticks relative h-4 text-[11px] text-slate-400 font-medium"></div>
+          </div>
+          <div class="flex flex-wrap gap-2 pt-1 no-print">
+            <span class="text-xs text-slate-400 self-center mr-1">Chọn nhanh:</span>
+            <button onclick="setRcnPct(40)" class="px-3 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200">40%</button>
+            <button onclick="setRcnPct(50)" class="px-3 py-1 text-xs font-semibold rounded-lg bg-amber-50 text-amber-700 border border-amber-200">50%</button>
+            <button onclick="setRcnPct(70)" class="px-3 py-1 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 border border-blue-200">70%</button>
+            <button onclick="setRcnPct(100)" class="px-3 py-1 text-xs font-semibold rounded-lg bg-emerald-100 text-emerald-800">100%</button>
+            <button onclick="setRcnPct(120)" class="px-3 py-1 text-xs font-bold rounded-lg bg-redsun-100 text-redsun-800">120%</button>
+          </div>
+        </div>
+
+        <!-- 3. Doanh số đội -->
+        <div id="dept-kpi-card" class="bg-white rounded-2xl p-6 border-2 border-redsun-200 shadow-sm space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-bold text-slate-900">3. Target & Doanh Số Đội Ngũ</h3>
+                <span class="px-2 py-0.5 text-[10px] font-bold bg-redsun-600 text-white rounded">Dành Cho Quản Lý</span>
+              </div>
+              <p id="dept-desc-text" class="text-xs text-slate-500"></p>
+            </div>
+            <span id="rql-percent-badge" class="self-end sm:self-auto px-2.5 py-1 text-xs font-extrabold rounded-lg"></span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <div>
+              <label class="text-[11px] font-bold text-slate-600 block mb-1">Target Đội (K_đội, không gồm QL) <span id="kql-auto-chip" class="font-normal text-slate-400"></span></label>
+              <input type="text" inputmode="numeric" id="kql-input" oninput="onKteamInput(this.value)" onblur="this.value=fmt(S.Kteam)" class="w-full text-xs font-bold p-2 bg-white border border-slate-300 rounded-lg">
+            </div>
+            <div>
+              <label class="text-[11px] font-bold text-slate-600 block mb-1">Tỷ trọng tính Lương HS (B)</label>
+              <div id="weight-split-text" class="text-xs font-bold text-redsun-700 py-2"></div>
+            </div>
+          </div>
+          <div id="unit-info" class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]"></div>
+          <label class="text-[11px] font-bold text-slate-600 block -mb-2">Doanh số thực tế của Đội (R_đội, không gồm QL)</label>
+          <div class="relative">
+            <input type="text" inputmode="numeric" id="rql-input" oninput="onRteamInput(this.value)" class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3.5 text-lg sm:text-2xl font-black text-redsun-900 pr-16" placeholder="0">
+            <span class="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">VNĐ</span>
+          </div>
+          <div class="space-y-1.5">
+            <input type="range" id="rql-slider" min="0" max="200" step="1" oninput="onRqlSlider(this.value)" class="w-full">
+            <div class="ticks relative h-4 text-[11px] text-slate-400 font-medium"></div>
+          </div>
+          <div class="flex flex-wrap gap-2 pt-1 no-print">
+            <span class="text-xs text-slate-400 self-center mr-1">% đạt của đội:</span>
+            <button onclick="setRqlPct(50)" class="px-3 py-1 text-xs font-semibold rounded-lg bg-amber-50 text-amber-700 border border-amber-200">50%</button>
+            <button onclick="setRqlPct(70)" class="px-3 py-1 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 border border-blue-200">70%</button>
+            <button onclick="setRqlPct(100)" class="px-3 py-1 text-xs font-semibold rounded-lg bg-emerald-100 text-emerald-800">100%</button>
+            <button onclick="setRqlPct(120)" class="px-3 py-1 text-xs font-bold rounded-lg bg-redsun-100 text-redsun-800">120%</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phiếu thu nhập -->
+      <div class="lg:col-span-5 space-y-6 lg:sticky lg:top-32">
+        <div class="bg-gradient-to-b from-white to-slate-50 rounded-3xl border-2 border-redsun-200 p-6 sm:p-7 shadow-xl space-y-6 print-shadow-none">
+          <div class="flex items-center justify-between pb-4 border-b border-slate-200">
+            <div>
+              <h4 class="font-extrabold text-slate-900 text-xs sm:text-sm">CÔNG TY ĐẦU TƯ CÔNG NGHỆ REDSUN</h4>
+              <p id="out-role-name" class="text-xs text-redsun-700 font-bold"></p>
+            </div>
+            <span id="out-mode-chip" class="text-[11px] px-2.5 py-1 rounded-full font-bold"></span>
+          </div>
+
+          <div class="bg-gradient-to-br from-redsun-900 via-redsun-700 to-redsun-600 rounded-2xl p-6 text-white text-center shadow-lg">
+            <span class="text-xs uppercase tracking-wider text-red-200 font-bold block mb-1">TỔNG THU NHẬP (N)</span>
+            <div id="out-total-income" class="text-3xl sm:text-4xl font-black tracking-tight font-mono"></div>
+            <div class="mt-2 inline-flex px-3 py-0.5 rounded-full bg-white/20 text-xs"><span id="out-perf-summary"></span></div>
+            <div id="out-diff" class="mt-2 text-[11px] text-red-100"></div>
+          </div>
+
+          <div class="space-y-3 text-xs sm:text-sm">
+            <div class="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200/80">
+              <div class="flex items-center gap-2.5">
+                <span class="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">S</span>
+                <div><span class="font-bold text-slate-800 block">Lương Cơ Bản</span><span id="out-s-sub" class="text-[10px] text-slate-400"></span></div>
+              </div>
+              <span id="out-s-val" class="font-bold text-slate-900 font-mono"></span>
+            </div>
+            <div class="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200/80">
+              <div class="flex items-center gap-2.5">
+                <span class="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs">B</span>
+                <div>
+                  <span class="font-bold text-slate-800">Lương Hiệu Suất</span>
+                  <span id="out-b-rate-badge" class="text-[10px] px-1.5 bg-blue-100 text-blue-700 rounded font-bold"></span>
+                  <span id="out-b-calc" class="text-[10px] text-slate-400 block"></span>
+                </div>
+              </div>
+              <span id="out-b-val" class="font-bold text-blue-700 font-mono"></span>
+            </div>
+            <div class="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200/80">
+              <div class="flex items-center gap-2.5">
+                <span class="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center text-xs">C₁</span>
+                <div>
+                  <span class="font-bold text-slate-800">Thưởng DS Cá Nhân</span>
+                  <span id="out-ccn-rate-badge" class="text-[10px] px-1.5 bg-emerald-100 text-emerald-700 rounded font-bold"></span>
+                  <span id="out-ccn-calc" class="text-[10px] text-slate-400 block"></span>
+                </div>
+              </div>
+              <span id="out-ccn-val" class="font-bold text-emerald-700 font-mono"></span>
+            </div>
+            <div id="out-cql-box" class="flex items-center justify-between p-3 bg-white rounded-xl border-2 border-redsun-100">
+              <div class="flex items-center gap-2.5">
+                <span class="w-6 h-6 rounded-lg bg-amber-100 text-amber-700 font-bold flex items-center justify-center text-xs">C₂</span>
+                <div>
+                  <span class="font-bold text-slate-800">Thưởng Doanh Số Quản Lý</span>
+                  <span id="out-cql-rate-badge" class="text-[10px] px-1.5 bg-amber-100 text-amber-800 rounded font-bold"></span>
+                  <span id="out-cql-calc" class="text-[10px] text-slate-400 block"></span>
+                </div>
+              </div>
+              <span id="out-cql-val" class="font-bold text-redsun-700 font-mono"></span>
+            </div>
+          </div>
+
+          <div class="p-4 bg-slate-100/70 rounded-2xl space-y-2 border border-slate-200">
+            <div class="flex justify-between text-xs">
+              <span id="out-cost-label" class="text-slate-500 font-medium"></span>
+              <span id="out-cost-ratio" class="font-bold text-slate-800"></span>
+            </div>
+            <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden"><div id="out-cost-bar" class="bg-redsun-600 h-full rounded-full transition-all"></div></div>
+            <p id="out-summary-text" class="text-[11px] text-slate-500 pt-1 leading-relaxed"></p>
+          </div>
+
+          <div class="hidden print-only pt-6 border-t border-slate-300 text-xs text-center">
+            <div class="grid grid-cols-3 gap-4">
+              <div><p class="font-bold uppercase">Người Lập Phiếu</p><p class="text-[10px] text-slate-400 mt-12">(Ký và ghi rõ họ tên)</p></div>
+              <div><p class="font-bold uppercase">Trưởng Bộ Phận</p><p class="text-[10px] text-slate-400 mt-12">(Ký duyệt)</p></div>
+              <div><p class="font-bold uppercase">Ban Giám Đốc REDSUN</p><p class="text-[10px] text-slate-400 mt-12">(Phê duyệt chi trả)</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- So sánh 2 phương án -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 bg-slate-900 text-white">
+        <h3 class="font-bold text-lg">So sánh thu nhập: Hiện hành vs Đề xuất</h3>
+        <p id="cmp-sub" class="text-xs text-slate-400"></p>
+        <p class="text-[11px] text-slate-400 mt-1">"Cùng % KPI": mỗi phương án đạt cùng tỷ lệ trên target của chính nó. "Cùng DS thực tế": nhân sự bán đúng số doanh số như ở cột Hiện hành, chỉ đổi cách tính.</p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs sm:text-sm text-right">
+          <thead class="bg-slate-100 text-slate-700 font-bold text-[11px] uppercase border-b">
+            <tr>
+              <th class="py-3 px-3 text-left">% KPI</th>
+              <th class="py-3 px-3">DS cá nhân (HH)</th>
+              <th class="py-3 px-3">N Hiện hành</th>
+              <th class="py-3 px-3">DS cá nhân (ĐX)</th>
+              <th class="py-3 px-3">N Đề xuất</th>
+              <th class="py-3 px-3">Chênh lệch</th>
+              <th class="py-3 px-3 bg-emerald-50">N Đề xuất<br><span class="normal-case font-medium">cùng DS thực tế</span></th>
+              <th class="py-3 px-3 bg-emerald-50">Chênh lệch<br><span class="normal-case font-medium">cùng DS thực tế</span></th>
+            </tr>
+          </thead>
+          <tbody id="cmp-tbody" class="divide-y divide-slate-100 font-mono"></tbody>
+        </table>
+      </div>
+      <div class="px-6 py-4 border-t border-slate-100 bg-amber-50/50">
+        <p class="text-xs font-bold text-slate-700 mb-1">Kiểm tra "điểm gãy": thu nhập tăng thêm khi bán thêm 1% target ngay tại mốc</p>
+        <div id="cliff-box" class="text-xs text-slate-600 grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="no-print bg-slate-950 text-slate-400 text-xs py-8 mt-12">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between gap-4">
+    <div>
+      <p class="text-slate-100 font-extrabold text-sm">CÔNG TY ĐẦU TƯ CÔNG NGHỆ REDSUN</p>
+      <p class="text-gold-400 italic text-[11px]">For Growth Together • Hệ thống tính lương kinh doanh lưu hành nội bộ</p>
+    </div>
+    <p class="text-slate-500 text-[11px] md:text-right">Bản v2: sửa lỗi số liệu & bổ sung phương án đề xuất. Mọi định mức nằm trong một bảng dữ liệu (ROLES) duy nhất.</p>
+  </div>
+</footer>
+
+<script>
+/* =====================================================================
+   NGUỒN DỮ LIỆU DUY NHẤT: bảng quy chế, dropdown và phép tính đều đọc từ đây.
+   ===================================================================== */
+const ROLES = {
+  cco:    { name:'Giám đốc kinh doanh (CCO)',          short:'CCO',      dot:'bg-redsun-600',  type:'mgr',   min:40e6, max:60e6, cb:0.4, X:{cur:10,prop:3},  wCn:0.4, wQl:0.6, team:'Khối Kinh Doanh', teamShort:'Khối',
+            qlCur:[[0.7,0.003],[1.0,0.005],[1.2,0.007],[Infinity,0.010]] },
+  sm:     { name:'Trưởng phòng kinh doanh (SM)',       short:'SM',       dot:'bg-redsun-600',  type:'mgr',   min:20e6, max:40e6, cb:0.4, X:{cur:10,prop:4},  wCn:0.4, wQl:0.6, team:'Phòng Kinh Doanh', teamShort:'Phòng',
+            qlCur:[[0.7,0.005],[1.0,0.008],[1.2,0.010],[Infinity,0.015]] },
+  tl:     { name:'Trưởng nhóm kinh doanh (Team Lead)', short:'Team Lead',dot:'bg-amber-500',   type:'mgr',   min:15e6, max:20e6, cb:0.4, X:{cur:10,prop:6},  wCn:0.5, wQl:0.5, team:'Nhóm Kinh Doanh', teamShort:'Nhóm',
+            qlCur:[[0.7,0.010],[1.0,0.015],[1.2,0.018],[Infinity,0.022]] },
+  senior: { name:'Chuyên viên kinh doanh (Senior)',    short:'Senior',   dot:'bg-emerald-600', type:'staff', min:12e6, max:15e6, cb:0.5, X:{cur:10,prop:10} },
+  sales:  { name:'Nhân viên kinh doanh (Sales Exec)',  short:'Sales',    dot:'bg-emerald-600', type:'staff', min:8e6,  max:12e6, cb:0.5, X:{cur:10,prop:10} },
+  intern: { name:'Tập sự kinh doanh (Fresher)',        short:'Fresher',  dot:'bg-slate-400',   type:'staff', min:6e6,  max:8e6,  cb:0.5, X:{cur:10,prop:7} },
+  ctv:    { name:'Cộng tác viên (CTV)',                short:'CTV',      dot:'bg-gold-500',    type:'ctv',   min:0,    max:0,    cb:0,   X:{cur:10,prop:10}, ctvTarget:20e6 }
+};
+const KTEAM_MULT = 40;        // Target đội (không gồm QL) mặc định = 40 × H. Hiện hành: K_ql = 40H + 10H = 50H, đúng bảng quy chế.
+const X_OPTIONS = [3,4,5,6,7,8,10,12,15,20];
+
+// --- Hiện hành: tỷ lệ của mốc đạt được nhân trên TOÀN BỘ doanh số ---
+const STAFF_CUR = [[0.5,0.02],[0.7,0.04],[1.0,0.06],[1.2,0.08],[Infinity,0.10]];
+const CTV_CUR   = [[0.5,0.10],[0.7,0.12],[1.0,0.15],[1.2,0.20],[Infinity,0.25]];
+// --- Đề xuất: lũy tiến TỪNG PHẦN ---
+const STAFF_PROP = [[0.5,0.02],[1.0,0.14],[1.2,0.15],[Infinity,0.12]];          // theo % K_cn
+const CTV_PROP   = [[20e6,0.12],[50e6,0.15],[100e6,0.18],[Infinity,0.15]];      // theo doanh số tuyệt đối
+// Thưởng QL đề xuất: 0 dưới 70%, tổng thưởng tại 100% và 120% bằng đúng hiện hành
+function qlProp(r){
+  const r100 = tierRate(r.qlCur, 1.0), r120 = tierRate(r.qlCur, 1.2);
+  return [[0.7,0],[1.0,r100/0.3],[1.2,(r120*1.2 - r100)/0.2],[Infinity,r120]];
+}
+
+function tierRate(tiers, p){ for (const [t,r] of tiers) if (p < t) return r; return 0; }
+function marginal(bands, x){ let c=0, prev=0; for (const [t,r] of bands){ if (x>prev) c += (Math.min(x,t)-prev)*r; prev=t; } return c; }
+
+/* ---------- Tiện ích ---------- */
+function fmt(n){ return (isNaN(n)||n==null) ? '0 đ' : Math.round(n).toLocaleString('vi-VN') + ' đ'; }
+function parseVND(s){ return parseInt(String(s||'').replace(/[^0-9]/g,''),10) || 0; }
+function pct(r, d=2){ return (r*100).toLocaleString('vi-VN',{maximumFractionDigits:d}) + '%'; }
+function pctFloor(p){ return (Math.floor(p*1000+1e-9)/10).toLocaleString('vi-VN',{maximumFractionDigits:1}) + '%'; }
+function short(n){
+  if (n >= 1e9) return (n/1e9).toLocaleString('vi-VN',{maximumFractionDigits:2}) + ' Tỷ';
+  return (n/1e6).toLocaleString('vi-VN',{maximumFractionDigits:1}) + ' Tr';
+}
+function rng(a,b){ return short(a).replace(/ (Tr|Tỷ)$/, a>=1e9===b>=1e9 ? '' : ' $1') + ' – ' + short(b); }
+function defaultW(r){ return Math.round((r.min + r.max)/2/500000)*500000; }
+const $ = id => document.getElementById(id);
+
+/* ---------- Phép tính trung tâm ---------- */
+/* Rteam, Kteam: doanh số & target của ĐỘI, KHÔNG gồm cá nhân quản lý.
+   Hiện hành:  K_ql = K_cn + K_đội;  R_ql = R_cn + R_đội;  % = R_ql / K_ql;  C₂ = tỷ lệ mốc × R_ql (gồm cả DS của QL).
+   Đề xuất:    K_ql = K_cn + K_đội;  DS tính % = min(R_cn, K_cn) + R_đội;  % = DS tính % / K_ql;
+               C₂ = thưởng lũy tiến theo % × (R_đội / DS tính %): chỉ trả trên doanh số của đội. */
+function compute(mode, key, W, X, Rcn, Rteam, Kteam){
+  const r = ROLES[key], isCtv = r.type==='ctv', isMgr = r.type==='mgr';
+  const S = isCtv ? 0 : W*r.cb;
+  const H = isCtv ? 0 : W*(1-r.cb);
+  const Kcn = isCtv ? r.ctvTarget : H*X;
+  const Pcn = Kcn>0 ? Rcn/Kcn : 0;
+  const Kql = isMgr ? Kcn + Kteam : 0;
+  const counted = isMgr ? (mode==='cur' ? Rcn + Rteam : Math.min(Rcn, Kcn) + Rteam) : 0;
+  const Pql = (isMgr && Kql>0) ? counted/Kql : 0;
+  const Pteam = (isMgr && Kteam>0) ? Rteam/Kteam : 0;
+
+  let B = 0, bP = 0;
+  if (isMgr){ bP = r.wCn*Math.min(Pcn,1) + r.wQl*Math.min(Pql,1); B = H*bP; }
+  else if (!isCtv){ bP = Math.min(Pcn,1); B = H*bP; }
+
+  let Ccn;
+  if (mode==='cur') Ccn = Rcn * tierRate(isCtv ? CTV_CUR : STAFF_CUR, Pcn);
+  else Ccn = isCtv ? marginal(CTV_PROP, Rcn) : marginal(STAFF_PROP, Pcn)*Kcn;
+
+  let Cql = 0, cqlBase = 0;
+  if (isMgr){
+    if (mode==='cur'){ cqlBase = counted; Cql = counted*tierRate(r.qlCur, Pql); }
+    else { cqlBase = Rteam; Cql = counted>0 ? marginal(qlProp(r), Pql)*Kql*Rteam/counted : 0; }
+  }
+  const N = S + B + Ccn + Cql;
+  const base = isMgr ? Rcn + Rteam : Rcn;
+  return { S,H,Kcn,Kql,counted,Pcn,Pql,Pteam,B,bP,Ccn,Cql,cqlBase,N,base };
+}
+
+/* ---------- Trạng thái ---------- */
+const S = { mode:'cur', key:'sales', W:0, X:10, Rcn:0, Rteam:0, Kteam:0, kteamManual:false, pCn:1, pQl:1, tab:'policy' };
+
+function curH(){ const r=ROLES[S.key]; return r.type==='ctv' ? 0 : S.W*(1-r.cb); }
+function curKcn(){ const r=ROLES[S.key]; return r.type==='ctv' ? r.ctvTarget : curH()*S.X; }
+
+function setRole(key){
+  S.key = key; const r = ROLES[key];
+  S.W = r.type==='ctv' ? 0 : defaultW(r);
+  S.X = r.X[S.mode];
+  S.kteamManual = false;
+  S.Kteam = r.type==='mgr' ? KTEAM_MULT*curH() : 0;
+  S.pCn = 1; S.pQl = 1;
+  S.Rcn = curKcn(); S.Rteam = S.Kteam;
+  syncInputs(); recalc();
+}
+function setMode(m){
+  S.mode = m;
+  S.X = ROLES[S.key].X[m];
+  S.Rcn = S.pCn*curKcn();
+  syncInputs(); renderPolicy(); recalc();
+}
+function onW(v){
+  S.W = parseInt(v,10);
+  S.Rcn = S.pCn*curKcn();
+  if (!S.kteamManual && ROLES[S.key].type==='mgr'){ S.Kteam = KTEAM_MULT*curH(); S.Rteam = S.pQl*S.Kteam; }
+  syncInputs(); recalc();
+}
+function onX(v){ S.X = parseInt(v,10); S.Rcn = S.pCn*curKcn(); syncInputs(); recalc(); }
+function onRcnSlider(v){ S.pCn = v/100; S.Rcn = S.pCn*curKcn(); $('rcn-input').value = fmt(S.Rcn); recalc(); }
+function onRcnInput(v){ S.Rcn = parseVND(v); const k=curKcn(); S.pCn = k>0 ? S.Rcn/k : 0; $('rcn-slider').value = Math.min(S.pCn*100,200); recalc(); }
+function setRcnPct(p){ onRcnSlider(p); $('rcn-slider').value = p; }
+function onKteamInput(v){ S.Kteam = parseVND(v); S.kteamManual = true; S.pQl = S.Kteam>0 ? S.Rteam/S.Kteam : 0; $('rql-slider').value = Math.min(S.pQl*100,200); $('kql-auto-chip').textContent='• nhập tay'; recalc(); }
+function onRqlSlider(v){ S.pQl = v/100; S.Rteam = S.pQl*S.Kteam; $('rql-input').value = fmt(S.Rteam); recalc(); }
+function onRteamInput(v){ S.Rteam = parseVND(v); S.pQl = S.Kteam>0 ? S.Rteam/S.Kteam : 0; $('rql-slider').value = Math.min(S.pQl*100,200); recalc(); }
+function setRqlPct(p){ onRqlSlider(p); $('rql-slider').value = p; }
+function resetDefaults(){ setRole(S.key); }
+
+function syncInputs(){
+  const r = ROLES[S.key];
+  $('role-select').value = S.key;
+  const ctrl = $('salary-range-control'), sl = $('salary-w-slider');
+  if (r.type==='ctv'){
+    ctrl.classList.add('opacity-50','pointer-events-none');
+    sl.min = 0; sl.max = 1; sl.value = 0;
+    $('salary-min-label').textContent='Min: 0 đ'; $('salary-max-label').textContent='Max: 0 đ';
+    $('salary-ratio-label').textContent='Thuần hoa hồng';
+  } else {
+    ctrl.classList.remove('opacity-50','pointer-events-none');
+    sl.min = r.min; sl.max = r.max; sl.value = S.W;
+    $('salary-min-label').textContent='Min: '+fmt(r.min); $('salary-max-label').textContent='Max: '+fmt(r.max);
+    $('salary-ratio-label').textContent=`Tỷ lệ: ${r.cb*100}% CB - ${(1-r.cb)*100}% HS`;
+  }
+  const xs = $('kpi-x-select');
+  xs.innerHTML = X_OPTIONS.map(x=>`<option value="${x}">x${x}</option>`).join('');
+  xs.value = S.X; xs.disabled = r.type==='ctv';
+  $('x-default-chip').textContent = 'Mặc định ' + r.X[S.mode];
+  $('rcn-input').value = fmt(S.Rcn); $('rcn-slider').value = Math.min(S.pCn*100,200);
+  $('kql-input').value = fmt(S.Kteam); $('rql-input').value = fmt(S.Rteam); $('rql-slider').value = Math.min(S.pQl*100,200);
+  $('kql-auto-chip').textContent = S.kteamManual ? '• nhập tay' : `• tự động = ${KTEAM_MULT} × H`;
+}
+
+function badgeClass(p, mgr){
+  const b='px-2.5 py-1 text-xs font-extrabold rounded-lg ';
+  if (!mgr && p<0.5) return b+'bg-slate-100 text-slate-700';
+  if (p<0.7) return b+'bg-amber-100 text-amber-800';
+  if (p<1.0) return b+'bg-blue-100 text-blue-800';
+  if (p<1.2) return b+'bg-emerald-100 text-emerald-800';
+  return b+'bg-redsun-100 text-redsun-800';
+}
+
+function recalc(){
+  const r = ROLES[S.key], isCtv=r.type==='ctv', isMgr=r.type==='mgr', prop=S.mode==='prop';
+  const c = compute(S.mode, S.key, S.W, S.X, S.Rcn, S.Rteam, S.Kteam);
+  const om = prop ? 'cur' : 'prop';
+  const other = compute(om, S.key, S.W, r.X[om], S.pCn*(isCtv?r.ctvTarget:c.H*r.X[om]), S.Rteam, S.Kteam);
+
+  // Badge vị trí
+  const rb = $('role-badge');
+  if (isCtv){ rb.textContent='Cộng Tác Viên (thuần hoa hồng)'; rb.className='text-xs px-2.5 py-1 rounded-full font-bold bg-gold-100 text-gold-800'; }
+  else if (isMgr){ rb.textContent='Cấp Quản Lý (40% CB - 60% HS)'; rb.className='text-xs px-2.5 py-1 rounded-full font-bold bg-redsun-100 text-redsun-800'; }
+  else { rb.textContent='Cấp Nhân Viên (50% CB - 50% HS)'; rb.className='text-xs px-2.5 py-1 rounded-full font-bold bg-emerald-100 text-emerald-800'; }
+
+  $('calc-mode-label').textContent = prop ? 'Đề xuất' : 'Hiện hành';
+  $('salary-range-display').textContent = fmt(S.W);
+  $('calc-s-display').textContent = fmt(c.S); $('calc-h-display').textContent = fmt(c.H);
+  $('calc-s-ratio').textContent = isCtv ? '0%' : (r.cb*100)+'% W';
+  $('calc-h-ratio').textContent = isCtv ? '0%' : ((1-r.cb)*100)+'% W';
+  $('calc-kcn-display').textContent = fmt(c.Kcn);
+  $('calc-kcn-sub').textContent = isCtv ? (prop ? 'Chỉ để tham chiếu' : 'Mốc gợi ý cố định') : 'Mốc chuẩn 100%';
+  $('x-formula').textContent = isCtv ? 'Không áp dụng' : 'K_cn = H × X';
+
+  const rcnB = $('rcn-percent-badge'); rcnB.textContent = pctFloor(c.Pcn)+' KPI'; rcnB.className = badgeClass(c.Pcn,false);
+
+  // Khối quản lý
+  $('dept-kpi-card').classList.toggle('hidden', !isMgr);
+  $('out-cql-box').classList.toggle('hidden', !isMgr);
+  if (isMgr){
+    const rqB = $('rql-percent-badge'); rqB.textContent = 'Đơn vị đạt ' + pctFloor(c.Pql); rqB.className = badgeClass(c.Pql,true);
+    $('dept-desc-text').textContent = prop
+      ? `Target đơn vị = target cá nhân QL + target đội. DS cá nhân QL tính vào % đơn vị tối đa bằng target cá nhân; C₂ chỉ trả trên DS của đội.`
+      : `Hiện hành: DS đơn vị = DS cá nhân QL + DS đội; C₂ trả trên toàn bộ DS đơn vị (gồm cả DS của QL).`;
+    $('weight-split-text').textContent = `${r.wQl*100}% Đơn vị + ${r.wCn*100}% Cá nhân`;
+    const capNote = prop && S.Rcn > c.Kcn ? ` <span class="text-amber-700">(chốt chặn: chỉ tính ${short(c.Kcn)} của QL)</span>` : '';
+    $('unit-info').innerHTML = `
+      <div class="p-2.5 bg-white rounded-lg border border-slate-200"><span class="text-slate-400 block">Target đơn vị (K_cn + K_đội)</span><b class="font-mono">${fmt(c.Kql)}</b></div>
+      <div class="p-2.5 bg-white rounded-lg border border-slate-200"><span class="text-slate-400 block">DS dùng để tính % đơn vị</span><b class="font-mono">${fmt(c.counted)}</b>${capNote}</div>
+      <div class="p-2.5 bg-white rounded-lg border border-slate-200"><span class="text-slate-400 block">% đạt của riêng đội</span><b>${pctFloor(c.Pteam)}</b> • % đạt đơn vị <b>${pctFloor(c.Pql)}</b></div>`;
+  }
+
+  // Phiếu
+  $('out-role-name').textContent = r.name;
+  const mc = $('out-mode-chip');
+  mc.textContent = prop ? 'Phương án Đề xuất' : 'Phương án Hiện hành';
+  mc.className = 'text-[11px] px-2.5 py-1 rounded-full font-bold ' + (prop ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600');
+  $('out-total-income').textContent = fmt(c.N);
+  const d = c.N - other.N;
+  $('out-diff').textContent = `So với phương án ${prop?'hiện hành':'đề xuất'} (cùng % KPI): ${d>=0?'+':''}${fmt(d)}`;
+
+  $('out-s-val').textContent = fmt(c.S);
+  $('out-s-sub').textContent = isCtv ? 'Không áp dụng lương cố định' : 'An sinh cố định theo ngày công chuẩn';
+  $('out-b-val').textContent = fmt(c.B);
+  $('out-b-rate-badge').textContent = Math.round(c.bP*100)+'%';
+  $('out-b-calc').textContent = isCtv ? 'Không áp dụng đối với CTV'
+    : isMgr ? `${r.wQl*100}% Đơn vị (${Math.round(Math.min(c.Pql,1)*100)}%) + ${r.wCn*100}% Cá nhân (${Math.round(Math.min(c.Pcn,1)*100)}%)`
+    : 'H × % KPI cá nhân (tối đa 100%)';
+
+  const effCcn = S.Rcn>0 ? c.Ccn/S.Rcn : 0;
+  $('out-ccn-rate-badge').textContent = pct(effCcn);
+  $('out-ccn-calc').textContent = prop
+    ? `Lũy tiến từng phần • tỷ lệ bình quân ${pct(effCcn)} × ${fmt(S.Rcn)}`
+    : `${pct(effCcn)} × ${fmt(S.Rcn)} (tỷ lệ mốc áp trên toàn bộ DS)`;
+  $('out-ccn-val').textContent = fmt(c.Ccn);
+  if (isMgr){
+    const effCql = c.cqlBase>0 ? c.Cql/c.cqlBase : 0;
+    $('out-cql-rate-badge').textContent = pct(effCql);
+    $('out-cql-calc').textContent = prop
+      ? (c.Pql<0.7 ? 'Đơn vị dưới 70% target: không có thưởng quản lý' : `Bình quân ${pct(effCql)} × ${fmt(c.cqlBase)} (chỉ DS của đội)`)
+      : `${pct(effCql)} × ${fmt(c.cqlBase)} (gồm cả DS của QL)`;
+    $('out-cql-val').textContent = fmt(c.Cql);
+  }
+
+  const p = c.Pcn;
+  $('out-perf-summary').textContent = p>=1.2 ? '🔥 Vượt 120% KPI' : p>=1 ? '🎯 Đạt chuẩn 100% KPI' : p>=0.7 ? '⚡ Đạt mức khá' : (isCtv ? '✦ Doanh số dưới 70% mốc' : '🛡️ Bảo đảm lương cơ bản');
+
+  $('out-cost-label').textContent = isMgr ? `Tỷ lệ Thu nhập / Doanh số đơn vị (cá nhân + đội):` : 'Tỷ lệ Thu nhập / Doanh số cá nhân:';
+  const cr = c.base>0 ? c.N/c.base*100 : 0;
+  $('out-cost-ratio').textContent = c.base>0 ? cr.toFixed(1)+'%' : 'N/A';
+  $('out-cost-bar').style.width = Math.min(cr,100)+'%';
+  $('out-summary-text').textContent = isCtv
+    ? `CTV nhận ${fmt(c.Ccn)} hoa hồng trên doanh số ${fmt(S.Rcn)} (bình quân ${pct(effCcn)}).`
+    : isMgr ? `Quản lý ${r.team}: tổng doanh số phụ trách ${fmt(c.base)}, thu nhập ${fmt(c.N)}.`
+    : `Thu nhập ${fmt(c.N)} tương đương ${cr.toFixed(1)}% doanh số cá nhân.`;
+
+  renderCompare();
+}
+
+/* ---------- Bảng so sánh ---------- */
+function renderCompare(){
+  const r = ROLES[S.key], isCtv=r.type==='ctv', isMgr=r.type==='mgr';
+  const H = isCtv ? 0 : S.W*(1-r.cb);
+  const kcn = m => isCtv ? r.ctvTarget : H*r.X[m];
+  $('cmp-sub').textContent = `${r.name} • W = ${fmt(S.W)}` + (isMgr ? ` • Target đội (không gồm QL) = ${fmt(S.Kteam)} • % KPI áp đồng thời cho cá nhân QL và đội` : '')
+    + ` • Hệ số X mặc định: Hiện hành x${r.X.cur}, Đề xuất x${r.X.prop}`;
+  const sign = d => `${d>=0?'+':''}${fmt(d)}`;
+  const col = d => d>0 ? 'text-emerald-700' : d<0 ? 'text-redsun-700' : 'text-slate-500';
+  const rows = [0.4,0.5,0.7,0.9,1.0,1.2,1.5,2.0].map(p=>{
+    const a = compute('cur', S.key, S.W, r.X.cur, p*kcn('cur'), p*S.Kteam, S.Kteam);
+    const b = compute('prop',S.key, S.W, r.X.prop,p*kcn('prop'),p*S.Kteam, S.Kteam);
+    const e = compute('prop',S.key, S.W, r.X.prop,p*kcn('cur'), p*S.Kteam, S.Kteam);   // cùng doanh số thực tế với cột Hiện hành
+    const d = b.N - a.N, d2 = e.N - a.N;
+    return `<tr class="${p===1?'bg-emerald-50/50 font-bold':''}"><td class="py-2.5 px-3 text-left font-sans font-bold">${Math.round(p*100)}%</td>
+      <td class="py-2.5 px-3 text-slate-500">${fmt(p*kcn('cur'))}</td><td class="py-2.5 px-3">${fmt(a.N)}</td>
+      <td class="py-2.5 px-3 text-slate-500">${fmt(p*kcn('prop'))}</td><td class="py-2.5 px-3">${fmt(b.N)}</td>
+      <td class="py-2.5 px-3 ${col(d)}">${sign(d)}</td>
+      <td class="py-2.5 px-3 bg-emerald-50/40">${fmt(e.N)}</td><td class="py-2.5 px-3 bg-emerald-50/40 ${col(d2)}">${sign(d2)}</td></tr>`;
+  });
+  $('cmp-tbody').innerHTML = rows.join('');
+
+  // Điểm gãy: thu nhập tăng khi đơn vị/cá nhân đi từ (mốc − 1%) lên đúng mốc
+  const marks = isMgr ? [0.7,1.0,1.2] : [0.5,0.7,1.0,1.2];
+  const html = ['cur','prop'].map(m=>{
+    const k = kcn(m), Ku = k + S.Kteam;
+    const items = marks.map(t=>{
+      // Quản lý: QL đạt đúng 100% cá nhân, chỉ doanh số đội thay đổi để đơn vị đi qua mốc
+      const lo = isMgr ? compute(m,S.key,S.W,r.X[m],k,(t-0.01)*Ku-k,S.Kteam) : compute(m,S.key,S.W,r.X[m],(t-0.01)*k,0,0);
+      const hi = isMgr ? compute(m,S.key,S.W,r.X[m],k,t*Ku-k,S.Kteam)        : compute(m,S.key,S.W,r.X[m],t*k,0,0);
+      const extraRev = 0.01*(isMgr ? Ku : k);
+      return `${Math.round((t-0.01)*100)}→${Math.round(t*100)}%: DS +${short(extraRev)}, thu nhập <b>+${short(hi.N-lo.N)}</b>`;
+    }).join('<br>');
+    return `<div class="p-3 rounded-xl ${m==='prop'?'bg-emerald-50 border border-emerald-200':'bg-white border border-slate-200'}"><b>${m==='prop'?'Đề xuất':'Hiện hành'}</b>${isMgr?' (% đạt đơn vị)':''}<br>${items}</div>`;
+  }).join('');
+  $('cliff-box').innerHTML = html;
+}
+
+/* ---------- Tab 1: Quy chế ---------- */
+function renderPolicy(){
+  const prop = S.mode==='prop';
+  $('policy-mode-chip').textContent = prop ? 'Phương án đề xuất' : 'Phương án hiện hành';
+  $('changes-panel').classList.toggle('hidden', !prop);
+  $('rules-panel').classList.toggle('hidden', !prop);
+  $('policy-intro').innerHTML = prop
+    ? 'Giữ nguyên dải lương và cơ cấu <b>40/60 (quản lý)</b>, <b>50/50 (nhân viên)</b>. Thay đổi: hoa hồng <b>lũy tiến từng phần</b>, hệ số X <b>theo cấp bậc</b>, thưởng quản lý có <b>ngưỡng 70%</b> và không tính hai lần doanh số cá nhân, hoa hồng CTV theo <b>doanh số tuyệt đối</b>.'
+    : 'Cấp Quản lý: <b>40% Lương cơ bản - 60% Lương hiệu suất</b> kèm KPI kép (Cá nhân & Đội ngũ). Cấp Nhân viên: <b>50% - 50%</b>. Hệ số KPI cá nhân <b>X = 10</b> cho mọi vị trí. CTV hưởng hoa hồng 10% - 25% doanh số.';
+  $('table-sub').textContent = prop
+    ? 'K_cn = H × X (X theo cấp). Target đơn vị K_ql = K_cn của QL + target đội (mặc định 40 × H).'
+    : 'K_cn = H × 10. K_ql = K_cn của QL + target đội (mặc định 40 × H) = 50 × H.';
+
+  $('range-tbody').innerHTML = Object.values(ROLES).map(r=>{
+    if (r.type==='ctv') return `<tr><td class="py-3.5 px-4 font-bold text-slate-900"><span class="inline-block w-2.5 h-2.5 rounded-full ${r.dot} mr-2"></span>${r.name}</td>
+      <td class="py-3.5 px-4 font-bold text-gold-700">0</td><td class="py-3.5 px-4 italic text-slate-500">Thuần hoa hồng</td><td class="py-3.5 px-4 text-slate-500">0 đ</td><td class="py-3.5 px-4 text-slate-500">0 đ</td><td class="py-3.5 px-4 text-slate-400">—</td>
+      <td class="py-3.5 px-4 font-bold text-gold-700">${prop ? 'Bậc theo DS tuyệt đối' : 'Mốc cố định 20 Tr'}</td><td class="py-3.5 px-4 text-slate-400">—</td></tr>`;
+    const X = r.X[S.mode], h=1-r.cb;
+    return `<tr class="hover:bg-slate-50"><td class="py-3.5 px-4 font-bold text-slate-900"><span class="inline-block w-2.5 h-2.5 rounded-full ${r.dot} mr-2"></span>${r.name}</td>
+      <td class="py-3.5 px-4 font-bold text-redsun-700">${rng(r.min,r.max)}</td>
+      <td class="py-3.5 px-4 font-semibold">${r.cb*100}% - ${h*100}%</td>
+      <td class="py-3.5 px-4">${rng(r.min*r.cb,r.max*r.cb)}</td>
+      <td class="py-3.5 px-4 font-semibold text-slate-900">${rng(r.min*h,r.max*h)}</td>
+      <td class="py-3.5 px-4 font-mono font-bold ${prop && X!==10 ? 'text-emerald-700' : 'text-redsun-700'}">x${X}</td>
+      <td class="py-3.5 px-4 font-bold text-slate-900">${rng(r.min*h*X,r.max*h*X)}</td>
+      <td class="py-3.5 px-4 font-extrabold text-redsun-800">${r.type==='mgr' ? rng(r.min*h*(KTEAM_MULT+X),r.max*h*(KTEAM_MULT+X))+' ('+r.teamShort+')' : '<span class="text-slate-400 font-normal">—</span>'}</td></tr>`;
+  }).join('');
+
+  const row = (a,b,hl) => `<tr class="${hl||''}"><td class="py-2.5 px-2.5 text-slate-600">${a}</td><td class="py-2.5 px-2.5 text-right font-bold">${b}</td></tr>`;
+  const labels5 = ['&lt; 50% Target','50% - dưới 70%','70% - dưới 100%','100% - dưới 120%','≥ 120%'];
+  if (!prop){
+    $('ccn-sub').textContent = 'CCO, SM, TL, Senior, Sales, Fresher • tỷ lệ của mốc × TOÀN BỘ doanh số';
+    $('ccn-tbody').innerHTML = STAFF_CUR.map((t,i)=>row(labels5[i], pct(t[1])+' × R_cn', i>=3?'bg-emerald-50/50':'')).join('');
+    $('ccn-note').textContent = 'Lưu ý: vượt qua mỗi mốc thì tỷ lệ mới áp lại cho toàn bộ doanh số, tạo ra bước nhảy thu nhập.';
+    $('ctv-sub').textContent = 'Theo % mốc cố định 20 Tr • áp trên toàn bộ doanh số';
+    $('ctv-tbody').innerHTML = CTV_CUR.map((t,i)=>row(labels5[i], pct(t[1])+' × R_cn', i>=3?'bg-gold-50':'')).join('');
+    $('ctv-note').textContent = 'Mốc 20 Tr cố định: CTV bán từ 24 Tr trở lên hưởng 25% trên toàn bộ doanh số.';
+    $('cql-sub').textContent = 'Tỷ lệ của mốc × toàn bộ doanh số đội';
+    const L = ['&lt; 70%','70% - dưới 100%','100% - dưới 120%','≥ 120%'];
+    $('cql-tbody').innerHTML = L.map((l,i)=>`<tr><td class="py-2.5 px-1 text-slate-600">${l}</td><td class="py-2.5 px-1 text-center font-bold">${pct(ROLES.cco.qlCur[i][1])}</td><td class="py-2.5 px-1 text-center font-bold">${pct(ROLES.sm.qlCur[i][1])}</td><td class="py-2.5 px-1 text-right font-bold">${pct(ROLES.tl.qlCur[i][1])}</td></tr>`).join('');
+    $('cql-note').textContent = 'Lương HS (B) quản lý: CCO/SM 60% Đội + 40% Cá nhân; TL 50% + 50%.';
+  } else {
+    $('ccn-sub').textContent = 'Lũy tiến TỪNG PHẦN: mỗi tỷ lệ chỉ áp cho phần doanh số trong khoảng';
+    const LB = ['Phần 0% - 50% K_cn','Phần 50% - 100% K_cn','Phần 100% - 120% K_cn','Phần trên 120% K_cn'];
+    $('ccn-tbody').innerHTML = STAFF_PROP.map((t,i)=>row(LB[i], pct(t[1]), i===2?'bg-emerald-50/50':'')).join('')
+      + row('<b>Tổng tại 100% / 120% / 150%</b>', `${pct(marginal(STAFF_PROP,1))} / ${pct(marginal(STAFF_PROP,1.2))} / ${pct(marginal(STAFF_PROP,1.5))} K_cn`, 'bg-slate-50');
+    $('ccn-note').textContent = 'Tại 100% thưởng = 8% × K_cn, bằng hiện hành. Phần trên 120% giảm về 12% để kiểm soát chi phí.';
+    $('ctv-sub').textContent = 'Lũy tiến từng phần theo doanh số tuyệt đối';
+    const LC = ['Phần 0 - 20 Tr','Phần 20 - 50 Tr','Phần 50 - 100 Tr','Phần trên 100 Tr'];
+    $('ctv-tbody').innerHTML = CTV_PROP.map((t,i)=>row(LC[i], pct(t[1]), i===2?'bg-gold-50':'')).join('')
+      + row('<b>Bình quân tại 30 / 100 Tr</b>', `${pct(marginal(CTV_PROP,30e6)/30e6,1)} / ${pct(marginal(CTV_PROP,100e6)/100e6,1)}`, 'bg-slate-50');
+    $('ctv-note').textContent = 'Chi phí trên mỗi đồng doanh thu của CTV luôn thấp hơn nhân viên chính thức cùng doanh số.';
+    $('cql-sub').textContent = 'Lũy tiến từng phần theo % đạt đơn vị • chỉ trả trên DS của đội';
+    const qc=qlProp(ROLES.cco), qs=qlProp(ROLES.sm), qt=qlProp(ROLES.tl);
+    const L = ['Phần &lt; 70%','Phần 70% - 100%','Phần 100% - 120%','Phần trên 120%'];
+    $('cql-tbody').innerHTML = L.map((l,i)=>`<tr><td class="py-2.5 px-1 text-slate-600">${l}</td><td class="py-2.5 px-1 text-center font-bold">${pct(qc[i][1])}</td><td class="py-2.5 px-1 text-center font-bold">${pct(qs[i][1])}</td><td class="py-2.5 px-1 text-right font-bold">${pct(qt[i][1])}</td></tr>`).join('');
+    $('cql-note').textContent = '% đạt đơn vị = [min(DS cá nhân QL, K_cn) + DS đội] ÷ (K_cn + K_đội). Dưới 70%: không có C₂. Thưởng tính theo bảng trên × target đơn vị, rồi chỉ trả phần tương ứng với DS của đội (DS cá nhân QL đã nhận C₁).';
+  }
+}
+
+/* ---------- Tab ---------- */
+function switchTab(t){
+  S.tab = t;
+  $('tab-content-policy').classList.toggle('hidden', t!=='policy');
+  $('tab-content-calc').classList.toggle('hidden', t!=='calc');
+  const on='py-3 px-2 border-b-2 font-semibold text-sm transition border-gold-400 text-gold-400';
+  const off='py-3 px-2 border-b-2 font-semibold text-sm transition border-transparent text-slate-300 hover:text-white';
+  $('tab-btn-policy').className = t==='policy'?on:off;
+  $('tab-btn-calc').className = t==='calc'?on:off;
+}
+function paintModeButtons(){
+  const on='px-3 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition bg-gold-500 text-slate-950';
+  const off='px-3 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition text-white hover:bg-white/10';
+  $('mode-btn-cur').className = S.mode==='cur'?on:off;
+  $('mode-btn-prop').className = S.mode==='prop'?on:off;
+}
+const _setMode = setMode;
+setMode = function(m){ _setMode(m); paintModeButtons(); };
+
+/* ---------- Khởi động ---------- */
+window.addEventListener('load', ()=>{
+  $('role-select').innerHTML = Object.entries(ROLES).map(([k,r])=>
+    `<option value="${k}">${r.name} • ${r.type==='ctv' ? 'Thuần hoa hồng' : 'Range ['+rng(r.min,r.max)+'] • '+(r.cb*100)+'% CB - '+((1-r.cb)*100)+'% HS'}</option>`).join('');
+  // Nhãn thanh trượt đặt đúng vị trí trên thang 0 - 200%
+  const ticks = [[0,'0%'],[50,'50%'],[70,'70%'],[100,'100%'],[120,'120%'],[150,'150%'],[200,'200%']];
+  document.querySelectorAll('.ticks').forEach(el=>{
+    el.innerHTML = ticks.map(([v,l])=>`<span class="tick ${v===100?'text-emerald-600 font-bold':v===120?'text-redsun-600 font-bold':''}" style="left:${v/2}%">${l}</span>`).join('');
+  });
+  switchTab('policy'); paintModeButtons(); renderPolicy(); setRole('sales');
+});
+</script>
+</body>
+</html>
