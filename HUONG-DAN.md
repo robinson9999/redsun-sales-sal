@@ -6,7 +6,7 @@ Bộ công cụ này tạo ra **một file `index.html` duy nhất**, gồm tran
 
 | File | Vai trò |
 |---|---|
-| `quy-che.html` | Trang quy chế gốc (chưa bảo mật). **Không đưa file này lên máy chủ.** |
+| `public/index.html` | Trang quy chế gốc (chưa bảo mật). **Không đưa file này lên máy chủ công khai**; trên Cloudflare chỉ dùng khi đã bật Cloudflare Access. |
 | `tai-khoan-mau.csv` | Mẫu danh sách tài khoản. |
 | `build-secure.js` | Công cụ tạo file phát hành. |
 | `login-template.html` | Giao diện trang đăng nhập (công cụ tự dùng). |
@@ -30,7 +30,7 @@ Máy tính cài **Node.js 18 trở lên** (tải tại nodejs.org). Không cần
 **2. Chạy công cụ** trong thư mục chứa bộ công cụ:
 
 ```
-node build-secure.js --src quy-che.html --accounts tai-khoan-mau.csv --out ban-phat-hanh
+node build-secure.js --src public/index.html --accounts tai-khoan-mau.csv --out ban-phat-hanh
 ```
 
 **3. Nhận kết quả** trong thư mục `ban-phat-hanh`:
@@ -47,7 +47,7 @@ node build-secure.js --src quy-che.html --accounts tai-khoan-mau.csv --out ban-p
 | Thêm nhân sự mới | Thêm dòng vào CSV, chạy lại bước 2, thay `index.html` trên máy chủ. Người cũ vẫn giữ mật khẩu nếu cột `mat_khau` đã điền sẵn. |
 | Nhân sự nghỉ việc | Xóa dòng của người đó, chạy lại bước 2, thay `index.html`. Mỗi lần chạy, khóa mã hóa được tạo mới, nên mật khẩu cũ không mở được file mới. |
 | Quên mật khẩu, đổi mật khẩu | HR đặt mật khẩu mới vào cột `mat_khau` của người đó, chạy lại bước 2, thay `index.html`. |
-| Cập nhật nội dung quy chế | Sửa `quy-che.html`, chạy lại bước 2, thay `index.html`. |
+| Cập nhật nội dung quy chế | Sửa `public/index.html`, chạy lại bước 2, thay `index.html`. |
 
 > **Mẹo:** sau lần phát hành đầu, hãy chép mật khẩu từ `danh-sach-mat-khau.csv` vào cột `mat_khau` của file tài khoản gốc. Như vậy các lần chạy sau, mọi người giữ nguyên mật khẩu, chỉ người mới được cấp mật khẩu mới.
 
@@ -60,4 +60,4 @@ node build-secure.js --src quy-che.html --accounts tai-khoan-mau.csv --out ban-p
 
 ## Nếu cần bảo mật cao hơn
 
-Nếu cần nhân sự tự đổi mật khẩu, khóa tài khoản ngay lập tức, hoặc ghi nhật ký ai đã xem, cần đặt trang sau một lớp đăng nhập phía máy chủ. Ví dụ: đăng nhập Google Workspace hoặc Microsoft 365 của công ty, hoặc Cloudflare Access (gửi mã đăng nhập qua email công ty). Khi đó vẫn dùng `quy-che.html` làm nội dung.
+Nếu cần nhân sự tự đổi mật khẩu, khóa tài khoản ngay lập tức, hoặc ghi nhật ký ai đã xem, cần đặt trang sau một lớp đăng nhập phía máy chủ. Ví dụ: đăng nhập Google Workspace hoặc Microsoft 365 của công ty, hoặc Cloudflare Access (gửi mã đăng nhập qua email công ty). Khi đó dùng `public/index.html` làm nội dung. Repo đã có sẵn cấu hình Cloudflare Workers, xem README.md.

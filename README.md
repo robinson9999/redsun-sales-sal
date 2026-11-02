@@ -8,7 +8,9 @@ Tài liệu quy chế lương thưởng và bảng tính thu nhập cho Khối K
 
 | Đường dẫn | Nội dung |
 |---|---|
-| `quy-che.html` | Trang quy chế + bảng tính, bản gốc chưa mã hóa. Sửa nội dung, tham số tại đây (khối `CONFIG` và `ROLES` trong phần script). |
+| `public/index.html` | Trang quy chế + bảng tính, bản gốc chưa mã hóa. Sửa nội dung, tham số tại đây (khối `CONFIG` và `ROLES` trong phần script). |
+| `public/_headers` | Header bảo mật khi chạy trên Cloudflare (chặn Google index, chặn nhúng iframe). |
+| `wrangler.jsonc` | Cấu hình Cloudflare Workers. |
 | `build-secure.js` | Công cụ tạo bản phát hành có đăng nhập (Node.js 18+, không cần cài thư viện). |
 | `login-template.html` | Giao diện trang đăng nhập. |
 | `tai-khoan-mau.csv` | Mẫu danh sách tài khoản. |
@@ -19,10 +21,21 @@ Tài liệu quy chế lương thưởng và bảng tính thu nhập cho Khối K
 
 ```bash
 cp tai-khoan-mau.csv tai-khoan.csv      # điền danh sách nhân sự thật (file này không bị commit)
-node build-secure.js --src quy-che.html --accounts tai-khoan.csv --out ban-phat-hanh
+node build-secure.js --src public/index.html --accounts tai-khoan.csv --out ban-phat-hanh
 ```
 
 - `ban-phat-hanh/index.html`: đưa lên máy chủ nội bộ (ưu tiên https).
 - `ban-phat-hanh/danh-sach-mat-khau.csv`: HR giữ và gửi riêng cho từng người.
 
 Chi tiết xem [HUONG-DAN.md](HUONG-DAN.md).
+
+## Triển khai trên Cloudflare (khuyến nghị)
+
+Trang được phục vụ bằng **Cloudflare Workers** (thư mục `public/`) và bảo vệ bằng **Cloudflare Access** (đăng nhập bằng mã gửi qua email).
+
+1. Cloudflare Dashboard → **Workers & Pages** → **Create** → **Import a repository** → chọn repo này → đặt tên Worker là `redsun-quy-che` (trùng `name` trong `wrangler.jsonc`) → **Deploy**.
+2. **Ngay sau đó**: Worker → **Settings** → **Domains & Routes** → bấm **Enable Cloudflare Access** cho cả `workers.dev` và **Preview URLs**.
+3. **Manage Cloudflare Access** → chính sách **Allow** → **Emails** (liệt kê email nhân sự Khối Kinh Doanh) hoặc **Emails ending in** `@redsun.vn`.
+4. Từ đó, mỗi lần đẩy thay đổi lên nhánh `main`, Cloudflare tự deploy lại.
+
+> ⚠ `public/` là bản **chưa mã hóa**. Chỉ triển khai khi đã bật Cloudflare Access. Không đặt file tài khoản/mật khẩu vào `public/`.

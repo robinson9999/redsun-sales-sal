@@ -1,0 +1,9 @@
+// Cấu hình Cloudflare Workers: phục vụ thư mục public/ dưới dạng trang tĩnh.
+// Tên "name" phải trùng tên Worker tạo trên Cloudflare Dashboard.
+{
+  "name": "redsun-quy-che",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public"
+  }
+}
