@@ -6,3 +6,6 @@ tai-khoan*.csv
 !tai-khoan-mau.csv
 node_modules/
 .DS_Store
+
+# Danh sách tài khoản xuất từ công cụ quản trị (có mật khẩu)
+danh-sach-tai-khoan*.csv
