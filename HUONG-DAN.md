@@ -6,7 +6,7 @@ Bộ công cụ này tạo ra **một file `index.html` duy nhất**, gồm tran
 
 | File | Vai trò |
 |---|---|
-| `public/index.html` | Trang quy chế gốc (chưa bảo mật). **Không đưa file này lên máy chủ công khai**; trên Cloudflare chỉ dùng khi đã bật Cloudflare Access. |
+| `src/quy-che.html` | Trang quy chế gốc (chưa bảo mật). **Không đưa file này lên máy chủ công khai**; trên Cloudflare chỉ dùng khi đã bật Cloudflare Access. |
 | `tai-khoan-mau.csv` | Mẫu danh sách tài khoản. |
 | `build-secure.js` | Công cụ tạo file phát hành. |
 | `login-template.html` | Giao diện trang đăng nhập (công cụ tự dùng). |
@@ -30,7 +30,7 @@ Máy tính cài **Node.js 18 trở lên** (tải tại nodejs.org). Không cần
 **2. Chạy công cụ** trong thư mục chứa bộ công cụ:
 
 ```
-node build-secure.js --src public/index.html --accounts tai-khoan-mau.csv --out ban-phat-hanh
+node build-secure.js --src src/quy-che.html --accounts tai-khoan-mau.csv --out ban-phat-hanh
 ```
 
 **3. Nhận kết quả** trong thư mục `ban-phat-hanh`:

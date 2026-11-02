@@ -8,7 +8,7 @@ Tài liệu quy chế lương thưởng và bảng tính thu nhập cho Khối K
 
 | Đường dẫn | Nội dung |
 |---|---|
-| `public/index.html` | Trang quy chế + bảng tính, bản gốc chưa mã hóa. Sửa nội dung, tham số tại đây (khối `CONFIG` và `ROLES` trong phần script). |
+| `src/quy-che.html` | Trang quy chế + bảng tính, bản gốc chưa mã hóa (KHÔNG phục vụ ra ngoài). Sửa nội dung, tham số tại đây (khối `CONFIG` và `ROLES` trong phần script). |
 | `public/_headers` | Header bảo mật khi chạy trên Cloudflare (chặn Google index, chặn nhúng iframe). |
 | `wrangler.jsonc` | Cấu hình Cloudflare Workers. |
 | `build-secure.js` | Công cụ tạo bản phát hành có đăng nhập (Node.js 18+, không cần cài thư viện). |
@@ -21,7 +21,7 @@ Tài liệu quy chế lương thưởng và bảng tính thu nhập cho Khối K
 
 ```bash
 cp tai-khoan-mau.csv tai-khoan.csv      # điền danh sách nhân sự thật (file này không bị commit)
-node build-secure.js --src public/index.html --accounts tai-khoan.csv --out ban-phat-hanh
+node build-secure.js --src src/quy-che.html --accounts tai-khoan.csv --out ban-phat-hanh
 ```
 
 - `ban-phat-hanh/index.html`: đưa lên máy chủ nội bộ (ưu tiên https).
