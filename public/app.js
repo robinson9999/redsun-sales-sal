@@ -192,7 +192,7 @@
         curHtml = `<div class="p-5 rounded-2xl bg-amber-50 border border-amber-200 text-sm text-amber-900">${curM ? `Tháng ${curM}/${S.year} chưa được giao KPI.` : `Chọn tháng trong bảng bên dưới để xem chi tiết.`} Khi quản lý giao KPI, chỉ tiêu sẽ hiện tại đây.</div>`;
       }
 
-      const rows = MONTHS.map((m) => {
+      const rows = [...MONTHS].reverse().map((m) => {   // tháng mới nhất ở trên
         const k = byM[m];
         const hl = m === curM ? 'bg-redsun-50/40' : '';
         if (!k) return `<tr class="${hl}"><td class="py-2.5 px-3 font-bold">Tháng ${m}</td><td colspan="${isMgr ? 7 : 5}" class="py-2.5 px-3 text-slate-400 italic">Chưa giao</td></tr>`;
