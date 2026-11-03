@@ -181,8 +181,10 @@ async function api(req, env, url, me) {
   if (method !== 'GET' && method !== 'HEAD') {
     const origin = req.headers.get('origin');
     if (origin && new URL(origin).host !== url.host) return bad('Yêu cầu không hợp lệ.', 403);
-    if (!(req.headers.get('content-type') || '').includes('application/json')) return bad('Yêu cầu không hợp lệ.', 415);
-    try { body = await req.json(); } catch { return bad('Dữ liệu không hợp lệ.'); }
+    if (method !== 'DELETE') {   // DELETE không cần nội dung; vẫn được chặn khác nguồn bằng kiểm tra Origin ở trên
+      if (!(req.headers.get('content-type') || '').includes('application/json')) return bad('Yêu cầu không hợp lệ.', 415);
+      try { body = await req.json(); } catch { return bad('Dữ liệu không hợp lệ.'); }
+    }
   }
 
   /* ----- Đăng nhập / đăng xuất ----- */

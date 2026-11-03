@@ -365,7 +365,7 @@
           document.getElementById('as-lf').oninput = (e) => { A.listFilter = e.target.value; const pos = e.target.selectionStart; drawAssigned().then(() => { const i = document.getElementById('as-lf'); i.focus(); i.setSelectionRange(pos, pos); }); };
           box.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
             if (!confirm('Xóa KPI này?')) return;
-            try { await api('/api/kpis/' + b.dataset.del, { method: 'DELETE' }); drawAssigned(); } catch (e) { alert(e.message); }
+            try { await api('/api/kpis/' + b.dataset.del, { method: 'DELETE', body: {} }); C.kpiCache = {}; drawAssigned(); } catch (e) { alert(e.message); }
           });
         } catch (e) { box.innerHTML = errorCard(e.message); }
       }
