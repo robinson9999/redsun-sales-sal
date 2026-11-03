@@ -1,9 +1,18 @@
-// Cấu hình Cloudflare Workers: phục vụ thư mục public/ dưới dạng trang tĩnh.
-// Tên "name" phải trùng tên Worker tạo trên Cloudflare Dashboard.
+// Cloudflare Worker: ứng dụng Quy chế Lương thưởng & KPI
+// - main: máy chủ (đăng nhập, phân quyền, API)
+// - assets: giao diện trong public/, chỉ phục vụ sau khi đăng nhập (run_worker_first)
+// - d1_databases: cơ sở dữ liệu D1, Cloudflare tự tạo ở lần deploy đầu
 {
   "name": "redsun-quy-che",
+  "main": "worker/index.js",
   "compatibility_date": "2026-10-01",
   "assets": {
-    "directory": "./public"
-  }
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "redsun-quy-che-db" }
+  ],
+  "observability": { "enabled": true }
 }

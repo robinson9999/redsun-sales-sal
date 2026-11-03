@@ -1,63 +1,30 @@
-# Hướng dẫn phát hành Quy chế Lương thưởng có đăng nhập
+# Hướng dẫn sử dụng – sales-kpi.redsun.vn
 
-Bộ công cụ này tạo ra **một file `index.html` duy nhất**, gồm trang đăng nhập và nội dung quy chế đã được mã hóa. Chỉ người có đúng tài khoản và mật khẩu mới mở được nội dung. Người không có mật khẩu xem mã nguồn cũng chỉ thấy dữ liệu đã mã hóa.
+## 1. Đăng nhập lần đầu
+1. Mở `https://sales-kpi.redsun.vn`, nhập **email** và **mật khẩu tạm** được cấp.
+2. Hệ thống yêu cầu **đặt mật khẩu riêng** (tối thiểu 8 ký tự) trước khi dùng.
+3. Quên mật khẩu: liên hệ Admin để được **cấp lại mật khẩu tạm**.
 
-## Thành phần
+## 2. Admin: tạo tài khoản nhân viên
+**Cách 1 – Từng người:** tab **Nhân viên** → **＋ Thêm nhân viên** → nhập email, họ tên, chức danh, quyền, quản lý trực tiếp, lương W → **Tạo tài khoản** → bấm **Sao chép nội dung** và gửi riêng cho nhân viên.
 
-| File | Vai trò |
-|---|---|
-| `src/quy-che.html` | Trang quy chế gốc (chưa bảo mật). **Không đưa file này lên máy chủ công khai**; trên Cloudflare chỉ dùng khi đã bật Cloudflare Access. |
-| `tai-khoan-mau.csv` | Mẫu danh sách tài khoản. |
-| `build-secure.js` | Công cụ tạo file phát hành. |
-| `login-template.html` | Giao diện trang đăng nhập (công cụ tự dùng). |
+**Cách 2 – Nhiều người từ file:** tab **Nhân viên** → **⇪ Nhập từ file CSV**. Các cột: `tai_khoan` (hoặc `email`), `ho_ten`, `chuc_danh`, `mat_khau` (có thì giữ nguyên, trống thì tạo mật khẩu tạm), `luong_w`, `quan_ly` (email quản lý trực tiếp). Dùng được luôn file `danh-sach-tai-khoan.csv` của công cụ cũ.
 
-## Yêu cầu
+Sau khi nhập: kiểm tra và bổ sung **lương W**, **quản lý trực tiếp** cho từng người (nút **Sửa**). Lương W và quản lý trực tiếp quyết định target và phạm vi quản lý.
 
-Máy tính cài **Node.js 18 trở lên** (tải tại nodejs.org). Không cần cài thêm thư viện, không cần Internet khi chạy.
+**Khóa tài khoản** (nghỉ việc): **Sửa** → Trạng thái **Khóa tài khoản**. Người đó bị đăng xuất ngay.
 
-## Các bước phát hành
+## 3. Admin/Quản lý: giao KPI
+Tab **Giao KPI**:
+1. Chọn nhân viên (tìm theo tên, lọc theo chức danh, chọn nhiều người).
+2. Chọn năm và tháng (có nút nhanh: Cả năm, Quý 1–4, Tháng này).
+3. Chỉ tiêu: để trống thì hệ thống tự tính (X theo chức danh, target = H × X theo lương W). Có thể nhập X hoặc target cụ thể.
+4. **Target đội** (CCO/SM/Team Lead): tự cộng target đơn vị của cấp dưới trực tiếp × hệ số (mặc định 1,0), hoặc nhập tay.
+5. **Xem trước** → **Giao KPI**. Tháng đã có KPI sẽ được hỏi trước khi ghi đè.
 
-**1. Lập danh sách tài khoản.** Mở `tai-khoan-mau.csv` bằng Excel, mỗi nhân sự một dòng:
+> Thứ tự nên làm: giao cho **nhân viên** trước → **Team Lead** → **Trưởng phòng** → **Giám đốc KD**, để target đội cộng đúng số mới nhất.
 
-| tai_khoan | ho_ten | chuc_danh | mat_khau |
-|---|---|---|---|
-| nguyenvana | Nguyễn Văn A | Trưởng phòng kinh doanh | *(để trống)* |
-
-- `tai_khoan`: không phân biệt hoa thường, nên dùng mã nhân viên hoặc phần trước @ của email công ty.
-- `mat_khau`: **để trống** thì công cụ tự tạo mật khẩu mặc định ngẫu nhiên, dạng `Ab3d-Ef5g`. Nếu tự đặt, dùng tối thiểu 8 ký tự.
-- Lưu lại dưới dạng **CSV UTF-8**.
-
-**2. Chạy công cụ** trong thư mục chứa bộ công cụ:
-
-```
-node build-secure.js --src src/quy-che.html --accounts tai-khoan-mau.csv --out ban-phat-hanh
-```
-
-**3. Nhận kết quả** trong thư mục `ban-phat-hanh`:
-
-- `index.html`: file đưa lên máy chủ nội bộ, website hoặc ổ chia sẻ.
-- `danh-sach-mat-khau.csv`: tài khoản và mật khẩu mặc định. **HR giữ file này và gửi riêng cho từng người** (email cá nhân, Zalo riêng). Không đưa lên máy chủ, không gửi vào nhóm chung.
-
-**4. Đưa `index.html` lên máy chủ**, ưu tiên địa chỉ **https**. Trang cũng mở được trực tiếp từ máy tính bằng Chrome hoặc Edge.
-
-## Các tình huống thường gặp
-
-| Tình huống | Cách làm |
-|---|---|
-| Thêm nhân sự mới | Thêm dòng vào CSV, chạy lại bước 2, thay `index.html` trên máy chủ. Người cũ vẫn giữ mật khẩu nếu cột `mat_khau` đã điền sẵn. |
-| Nhân sự nghỉ việc | Xóa dòng của người đó, chạy lại bước 2, thay `index.html`. Mỗi lần chạy, khóa mã hóa được tạo mới, nên mật khẩu cũ không mở được file mới. |
-| Quên mật khẩu, đổi mật khẩu | HR đặt mật khẩu mới vào cột `mat_khau` của người đó, chạy lại bước 2, thay `index.html`. |
-| Cập nhật nội dung quy chế | Sửa `public/index.html`, chạy lại bước 2, thay `index.html`. |
-
-> **Mẹo:** sau lần phát hành đầu, hãy chép mật khẩu từ `danh-sach-mat-khau.csv` vào cột `mat_khau` của file tài khoản gốc. Như vậy các lần chạy sau, mọi người giữ nguyên mật khẩu, chỉ người mới được cấp mật khẩu mới.
-
-## Giới hạn cần biết
-
-- **Nhân sự không tự đổi mật khẩu được**, vì đây là file tĩnh, không có máy chủ lưu dữ liệu. Mọi thay đổi do HR thực hiện bằng cách chạy lại công cụ.
-- **Người đã được cấp quyền và từng tải file về máy** vẫn mở được bản cũ bằng mật khẩu cũ. Khi nhân sự nghỉ việc, họ không mở được bản mới, nhưng bản họ đã tải thì vẫn còn đọc được.
-- Phiên đăng nhập chỉ giữ trong tab đang mở. Đóng tab hoặc bấm **Đăng xuất** thì phải đăng nhập lại.
-- Mật khẩu mặc định do công cụ tạo đủ mạnh để chống dò mật khẩu. Nếu HR tự đặt mật khẩu, tránh dạng dễ đoán như `123456` hay ngày sinh.
-
-## Nếu cần bảo mật cao hơn
-
-Nếu cần nhân sự tự đổi mật khẩu, khóa tài khoản ngay lập tức, hoặc ghi nhật ký ai đã xem, cần đặt trang sau một lớp đăng nhập phía máy chủ. Ví dụ: đăng nhập Google Workspace hoặc Microsoft 365 của công ty, hoặc Cloudflare Access (gửi mã đăng nhập qua email công ty). Khi đó dùng `public/index.html` làm nội dung. Repo đã có sẵn cấu hình Cloudflare Workers, xem README.md.
+## 4. Nhân viên: xem KPI & ước tính thu nhập
+- Tab **KPI của bạn**: chỉ tiêu tháng hiện tại và cả năm.
+- Bấm **Ước tính thu nhập với KPI này** → bảng tính tự điền hệ số X, target; nhập doanh số thực tế để xem thu nhập dự kiến.
+- Trong bảng tính có thể tự sửa **Hệ số X** và **Target cá nhân** để thử các kịch bản (không ảnh hưởng KPI đã giao).

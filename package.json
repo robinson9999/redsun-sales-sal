@@ -1,0 +1,14 @@
+{
+  "name": "redsun-quy-che",
+  "private": true,
+  "description": "REDSUN – Quy chế Lương thưởng & KPI Khối Kinh Doanh (Cloudflare Workers + D1)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "css": "tailwindcss -c tools/tailwind/tailwind.config.js -i tools/tailwind/in.css -o public/app.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.19",
+    "wrangler": "^4.50.0"
+  }
+}

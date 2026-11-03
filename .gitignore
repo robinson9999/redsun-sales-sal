@@ -9,3 +9,6 @@ node_modules/
 
 # Danh sách tài khoản xuất từ công cụ quản trị (có mật khẩu)
 danh-sach-tai-khoan*.csv
+# Wrangler (môi trường chạy thử trên máy)
+.wrangler/
+.dev.vars
