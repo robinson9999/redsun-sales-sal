@@ -82,14 +82,65 @@
       const canAssign = ['admin', 'manager'].includes(S.me.app_role);
       document.getElementById('tab-btn-assign').classList.toggle('hidden', !canAssign);
       document.getElementById('tab-btn-staff').classList.toggle('hidden', !canAssign);
-      // Bảng tính mặc định theo chức danh & lương của người đăng nhập
-      if (ROLES[S.me.title]) { setRole(S.me.title); if (S.me.salary_w > 0 && ROLES[S.me.title].type !== 'ctv') { st.W = S.me.salary_w; st.Rcn = st.pCn * curKcn(); if (ROLES[S.me.title].type === 'mgr') { st.Kteam = KTEAM_DEFAULT_MULT * curH(); st.Rteam = st.Kteam; } sync(); recalc(); } }
       switchTab(tabFromHash());
+      if (!S.me.must_change) initCalc();
       if (S.me.must_change) openPwModal(true);
     } catch (e) {
       switchTab('policy');
     }
   };
+  /* =========================================================================
+     BẢNG TÍNH THEO NGƯỜI: bản thân (khối KD) hoặc nhân viên dưới quyền (quản lý/admin)
+     ========================================================================= */
+  const C = { people: [], kpiCache: {}, ready: false };
+  const cbText = (u) => { const cb = u.cb_ratio != null ? u.cb_ratio : ((S.titles[u.title] || {}).cb || 0); return `${Math.round(cb * 1000) / 10}% CB – ${Math.round((1 - cb) * 1000) / 10}% HS`; };
+  async function initCalc() {
+    const box = document.getElementById('calc-person-box'), sel = document.getElementById('calc-person');
+    const canMgr = ['admin', 'manager'].includes(S.me.app_role), admin = S.me.app_role === 'admin';
+    let people = ROLES[S.me.title] ? [S.me] : [];
+    if (canMgr) { try { people = people.concat((await loadUsers()).filter((u) => u.active && u.id !== S.me.id && ROLES[u.title])); } catch (e) { /* bỏ qua */ } }
+    C.people = people; C.ready = true;
+    if (!people.length) { box.classList.add('hidden'); clearCalcPerson(); return; }
+    box.classList.remove('hidden');
+    sel.innerHTML = people.map((u) => `<option value="${u.id}">${esc(u.name)}${u.id === S.me.id ? ' (bạn)' : ''} – ${esc(titleName(u.title).replace(/ \(.+\)$/, ''))}</option>`).join('')
+      + (admin ? '<option value="free">— Mô phỏng tự do (không gắn nhân sự) —</option>' : '');
+    sel.disabled = people.length === 1 && !admin;
+    sel.onchange = () => calcShow(sel.value);
+    document.getElementById('calc-month').onchange = applyCalcMonth;
+    await calcShow(String(people[0].id));
+  }
+  async function calcShow(id, month) {
+    const sel = document.getElementById('calc-person'), msel = document.getElementById('calc-month'), note = document.getElementById('calc-person-note');
+    sel.value = String(id);
+    if (id === 'free') {
+      msel.innerHTML = '<option>Không áp dụng</option>'; msel.disabled = true;
+      note.textContent = 'Chế độ mô phỏng: tự chọn chức danh, lương W và doanh số để thử các kịch bản.';
+      clearCalcPerson(); return;
+    }
+    const u = C.people.find((p) => String(p.id) === String(id)); if (!u) return;
+    const y = new Date().getFullYear(), key = u.id + '-' + y;
+    try { if (!C.kpiCache[key]) C.kpiCache[key] = (await api(`/api/kpis?user_id=${u.id === S.me.id ? 'me' : u.id}&year=${y}`)).kpis; }
+    catch (e) { C.kpiCache[key] = []; }
+    const byM = Object.fromEntries(C.kpiCache[key].map((k) => [k.month, k]));
+    const cur = new Date().getMonth() + 1, m0 = month || cur;
+    msel.disabled = false;
+    msel.innerHTML = MONTHS.map((m) => `<option value="${m}">Tháng ${m}/${y}${byM[m] ? ' – đã giao' : ' – chưa giao'}</option>`).join('')
+      + '<option value="0">Không dùng KPI (theo định mức chức danh)</option>';
+    msel.value = String(m0);
+    msel.dataset.uid = u.id;
+    note.textContent = (u.id === S.me.id ? 'Bảng tính lương của bạn' : `Bạn đang xem bảng tính của nhân viên dưới quyền`)
+      + ` • Lương W ${u.salary_w ? fmt(u.salary_w) : 'chưa khai báo'} • Cơ cấu ${cbText(u)}. Doanh số nhập vào chỉ để ước tính, không được lưu lại.`;
+    applyCalcMonth();
+  }
+  function applyCalcMonth() {
+    const msel = document.getElementById('calc-month');
+    const u = C.people.find((p) => String(p.id) === String(msel.dataset.uid)); if (!u) return;
+    const y = new Date().getFullYear(), m = +msel.value;
+    const k = m ? (C.kpiCache[u.id + '-' + y] || []).find((x) => x.month === m) || null : null;
+    setCalcPerson(u, k);
+  }
+  window.calcShowFor = async function (id, month) { if (!C.ready) await initCalc(); await calcShow(String(id), month); switchTab('calc'); window.scrollTo(0, 0); };
+
   window.onTabShown = function (t) {
     if (!S.me || S.me.must_change) return;
     if (t === 'kpi') renderKpi();
@@ -158,7 +209,7 @@
         + `<div class="space-y-6">`
         + card(`<div class="p-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
             ${info('Họ tên', esc(S.me.name))}${info('Chức danh', esc(titleName(S.me.title)))}
-            ${info('Quản lý trực tiếp', S.manager ? esc(S.manager.name) : '—')}${info('Tổng lương thỏa thuận (W)', S.me.salary_w ? fmt(S.me.salary_w) : '—')}</div>`)
+            ${info('Quản lý trực tiếp', S.manager ? esc(S.manager.name) : '—')}${info('Tổng lương W • Cơ cấu', S.me.salary_w ? fmt(S.me.salary_w) + '<br><span class="text-xs font-normal text-slate-500">' + cbText(S.me) + '</span>' : '—')}</div>`)
         + curHtml
         + card(`<div class="px-5 py-4 border-b border-slate-100"><h3 class="font-bold text-slate-900">Bảng KPI năm ${S.year}</h3>
               <p class="text-xs text-slate-500">${isMgr ? 'Target đơn vị = target cá nhân + target đội (dùng để tính phần đơn vị của Lương hiệu suất và Thưởng quản lý).' : 'Target cá nhân dùng để tính Lương hiệu suất và Thưởng doanh số cá nhân.'}</p></div>
@@ -170,8 +221,8 @@
         + `</div>`;
       document.getElementById('kpi-year').onchange = (e) => { S.year = +e.target.value; renderKpi(); };
       el.querySelectorAll('[data-calc]').forEach((b) => b.onclick = () => {
-        const k = byM[+b.dataset.calc];
-        if (!applyKpiToCalc(k, S.me.title)) alert('Chức danh của bạn không dùng bảng tính lương này.');
+        if (!ROLES[S.me.title]) return alert('Chức danh của bạn không dùng bảng tính lương này.');
+        C.kpiCache = {}; calcShowFor(S.me.id, +b.dataset.calc);
       });
       void t;
     } catch (e) { el.innerHTML = errorCard(e.message); }
@@ -285,6 +336,7 @@
         try {
           const d = await api('/api/kpis', { method: 'POST', body: p });
           document.getElementById('as-prev').innerHTML = `<div class="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">✔ Đã giao ${d.count} dòng KPI.</div>`;
+          C.kpiCache = {};
           drawAssigned();
         } catch (e) { showErr('as-err', e.message); }
       };
@@ -344,13 +396,13 @@
             <label class="flex items-center gap-2"><input type="checkbox" id="st-inactive" ${ST.showInactive ? 'checked' : ''}> Hiện cả tài khoản đã khóa</label></div></div>
           <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-slate-50 text-[11px] uppercase text-slate-500"><tr>
             <th class="py-2.5 px-3 text-left">Nhân viên</th><th class="py-2.5 px-3 text-left">Chức danh</th><th class="py-2.5 px-3 text-left">Quyền</th>
-            <th class="py-2.5 px-3 text-left">Quản lý trực tiếp</th><th class="py-2.5 px-3 text-right">Lương W</th><th class="py-2.5 px-3 text-left">Trạng thái</th><th></th></tr></thead>
+            <th class="py-2.5 px-3 text-left">Quản lý trực tiếp</th><th class="py-2.5 px-3 text-right">Lương W • Cơ cấu</th><th class="py-2.5 px-3 text-left">Trạng thái</th><th></th></tr></thead>
             <tbody class="divide-y divide-slate-100">${rows.length ? rows.map((u) => `<tr class="${u.active ? '' : 'opacity-50'}">
               <td class="py-2.5 px-3"><b class="text-slate-900">${esc(u.name)}</b><br><span class="text-[11px] text-slate-500">${esc(u.email)}</span></td>
               <td class="py-2.5 px-3">${esc(titleName(u.title))}</td>
               <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded-full text-[11px] font-bold ${u.app_role === 'admin' ? 'bg-redsun-100 text-redsun-800' : u.app_role === 'manager' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}">${ROLE_LABEL[u.app_role]}</span></td>
               <td class="py-2.5 px-3">${u.manager_id ? mgrName(u.manager_id) : '—'}</td>
-              <td class="py-2.5 px-3 text-right font-mono">${u.salary_w ? fmt(u.salary_w) : '—'}</td>
+              <td class="py-2.5 px-3 text-right"><span class="font-mono">${u.salary_w ? fmt(u.salary_w) : '—'}</span>${u.salary_w && ROLES[u.title] && ROLES[u.title].type !== 'ctv' ? `<br><span class="text-[11px] text-slate-500">${cbText(u)}</span>` : ''}</td>
               <td class="py-2.5 px-3 text-xs">${!u.active ? 'Đã khóa' : u.must_change ? '<span class="text-amber-700">Chưa đổi mật khẩu tạm</span>' : '<span class="text-emerald-700">Đang hoạt động</span>'}</td>
               <td class="py-2.5 px-3 text-right whitespace-nowrap">
                 ${u.active && (admin || u.id !== S.me.id) ? `<button data-kpi="${u.id}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Giao KPI</button>` : ''}
@@ -380,6 +432,8 @@
         ${field('Quyền trên hệ thống', `<select id="uf-role" class="${inputCls}">${Object.entries(ROLE_LABEL).map(([k, v]) => `<option value="${k}" ${u.app_role === k ? 'selected' : ''}>${v}</option>`).join('')}</select>`, 'Admin: toàn quyền • Quản lý: xem & giao KPI cho cấp dưới • Nhân viên: chỉ xem của mình')}
         ${field('Quản lý trực tiếp', `<select id="uf-mgr" class="${inputCls}"><option value="">— Không có —</option>${mgrOpts}</select>`)}
         ${field('Tổng lương thỏa thuận W (VNĐ)', `<input id="uf-w" inputmode="numeric" value="${u.salary_w ? fmt(u.salary_w) : ''}" class="${inputCls}">`, `<span id="uf-range">${range(u.title)}</span>`)}
+        ${field('Tỷ lệ lương cơ bản (%)', `<div class="flex items-center gap-2"><input id="uf-cb" type="number" min="0" max="100" step="1" value="${u.cb_ratio != null ? Math.round(u.cb_ratio * 1000) / 10 : ''}" class="${inputCls}"><span class="text-xs text-slate-500 whitespace-nowrap">CB / <b id="uf-hs"></b> HS</span></div>`, 'Để trống: theo chức danh (quản lý 40%, nhân viên 50%).')}
+        <div class="sm:col-span-2 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600" id="uf-split"></div>
         ${field('Ngày vào làm', `<input id="uf-start" type="date" value="${esc(u.start_date || '')}" class="${inputCls}">`)}
         ${isNew ? '' : field('Trạng thái', `<select id="uf-active" class="${inputCls}"><option value="1" ${u.active ? 'selected' : ''}>Đang hoạt động</option><option value="0" ${u.active ? '' : 'selected'}>Khóa tài khoản</option></select>`)}
         <div class="sm:col-span-2">${errBox('uf-err')}</div>
@@ -390,12 +444,23 @@
       document.getElementById('uf-range').textContent = range(tSel.value);
       if (isNew && rSel.value !== 'admin') rSel.value = isMgrTitle(tSel.value) ? 'manager' : 'staff';
     };
-    const wIn = document.getElementById('uf-w');
+    const wIn = document.getElementById('uf-w'), cbIn = document.getElementById('uf-cb');
+    const split = () => {
+      const t = S.titles[tSel.value] || {}, W = parseVND(wIn.value);
+      const cbDef = t.cb || 0, cb = cbIn.value === '' ? cbDef : Math.min(100, Math.max(0, +cbIn.value)) / 100;
+      cbIn.placeholder = `Mặc định ${Math.round(cbDef * 100)}`;
+      document.getElementById('uf-hs').textContent = `${Math.round((1 - cb) * 1000) / 10}%`;
+      const isCtv = !ROLES[tSel.value] || ROLES[tSel.value].type === 'ctv';
+      document.getElementById('uf-split').innerHTML = isCtv ? 'Chức danh này không áp dụng lương cố định.'
+        : `Lương cơ bản S = <b>${fmt(W * cb)}</b> • Lương hiệu suất tối đa H = <b>${fmt(W * (1 - cb))}</b> • Target cá nhân mặc định (x${t.X}) = <b>${fmt(W * (1 - cb) * t.X)}</b>`;
+    };
+    wIn.oninput = split; cbIn.oninput = split; tSel.addEventListener('change', split); split();
     wIn.onblur = () => { const v = parseVND(wIn.value); wIn.value = v ? fmt(v) : ''; };
     document.getElementById('uf').onsubmit = async (e) => {
       e.preventDefault();
       const body = { email: document.getElementById('uf-email').value, name: document.getElementById('uf-name').value, title: tSel.value, app_role: rSel.value,
-        manager_id: document.getElementById('uf-mgr').value || null, salary_w: parseVND(wIn.value), start_date: document.getElementById('uf-start').value || null };
+        manager_id: document.getElementById('uf-mgr').value || null, salary_w: parseVND(wIn.value), start_date: document.getElementById('uf-start').value || null,
+        cb_ratio: cbIn.value === '' ? null : Math.min(100, Math.max(0, +cbIn.value)) / 100 };
       if (!isNew) body.active = document.getElementById('uf-active').value === '1';
       try {
         if (isNew) {
@@ -405,7 +470,7 @@
           await api('/api/users/' + u.id, { method: 'PUT', body });
           closeModal();
         }
-        S.rendered.assign = false; await renderStaff(true);
+        S.rendered.assign = false; C.kpiCache = {}; await renderStaff(true); if (C.ready) initCalc();
       } catch (err) { showErr('uf-err', err.message); }
     };
   }
@@ -440,7 +505,7 @@
   function importCsv() {
     openModal(`${modalHead('Nhập nhân viên từ file CSV', 'Dùng được file danh-sach-tai-khoan.csv của công cụ cũ, hoặc file Excel lưu dạng CSV UTF-8.')}
       <div class="px-6 py-5 space-y-3 text-sm">
-        <p class="text-slate-600">Các cột được nhận: <code>tai_khoan</code> hoặc <code>email</code>, <code>ho_ten</code>, <code>chuc_danh</code>, <code>mat_khau</code> (nếu có, giữ nguyên mật khẩu đã cấp), <code>luong_w</code>, <code>quan_ly</code> (email quản lý trực tiếp). Ai đã có tài khoản sẽ được bỏ qua.</p>
+        <p class="text-slate-600">Các cột được nhận: <code>tai_khoan</code> hoặc <code>email</code>, <code>ho_ten</code>, <code>chuc_danh</code>, <code>mat_khau</code> (nếu có, giữ nguyên mật khẩu đã cấp), <code>luong_w</code>, <code>ty_le_cb</code> (% lương cơ bản), <code>quan_ly</code> (email quản lý trực tiếp). Ai đã có tài khoản sẽ được bỏ qua.</p>
         <input type="file" id="ic-file" accept=".csv,text/csv" class="block w-full text-sm">
         <div id="ic-prev"></div>${errBox('ic-err')}
         <div class="flex justify-end gap-2"><button onclick="closeModal()" class="${BTN_S}">Hủy</button><button id="ic-go" class="${BTN_P}" disabled>Nhập</button></div>
@@ -452,7 +517,7 @@
       rows = recs.map((r) => {
         const email = (r.tai_khoan || r.email || '').toLowerCase(), title = guessTitle(r.chuc_danh);
         return { email, name: r.ho_ten || email, title, app_role: email === 'admin' ? 'admin' : isMgrTitle(title) ? 'manager' : 'staff',
-          password: r.mat_khau || '', salary_w: parseVND(r.luong_w || ''), manager_email: r.quan_ly || r.quan_ly_email || '' };
+          password: r.mat_khau || '', salary_w: parseVND(r.luong_w || ''), cb_ratio: (() => { if (!r.ty_le_cb) return null; const v = parseFloat(String(r.ty_le_cb).replace('%', '').replace(',', '.')); return isNaN(v) ? null : (v > 1 ? v / 100 : v); })(), manager_email: r.quan_ly || r.quan_ly_email || '' };
       }).filter((r) => r.email);
       const exist = new Set((S.users || []).map((u) => u.email));
       document.getElementById('ic-prev').innerHTML = `<div class="border border-slate-200 rounded-xl max-h-64 overflow-y-auto"><table class="w-full text-xs">

@@ -309,6 +309,16 @@
   <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
     <div class="lg:col-span-7 space-y-6">
 
+      <div id="calc-person-box" class="hidden bg-white rounded-2xl p-5 border-2 border-redsun-200 shadow-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="block"><span class="block text-xs font-bold text-slate-600 mb-1">Bảng tính lương của</span>
+            <select id="calc-person" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 font-bold text-sm"></select></label>
+          <label class="block"><span class="block text-xs font-bold text-slate-600 mb-1">Áp dụng KPI tháng</span>
+            <select id="calc-month" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 font-bold text-sm"></select></label>
+        </div>
+        <p id="calc-person-note" class="text-[11px] text-slate-500 mt-2"></p>
+      </div>
+
       <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-5">
         <div class="flex items-center justify-between gap-2">
           <label for="role-select" class="text-sm font-bold text-slate-900">1. Chức danh</label>
@@ -473,6 +483,7 @@ const KTEAM_DEFAULT_MULT = 40;   // giá trị minh họa ban đầu cho target 
 
 /* ---------- Tiện ích ---------- */
 const $ = id => document.getElementById(id);
+const escH = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = n => (isNaN(n)||n==null) ? '0 đ' : Math.round(n).toLocaleString('vi-VN') + ' đ';
 const parseVND = s => parseInt(String(s||'').replace(/[^0-9]/g,''),10) || 0;
 const pct = (r,d=2) => (r*100).toLocaleString('vi-VN',{maximumFractionDigits:d}) + '%';
@@ -483,9 +494,10 @@ const defaultW = r => Math.round((r.min+r.max)/2/500000)*500000;
 const marginal = (bands,x) => { let c=0,prev=0; for (const [t,r] of bands){ if (x>prev) c += (Math.min(x,t)-prev)*r; prev=t; } return c; };
 
 /* ---------- Phép tính ---------- */
-function compute(key, W, X, Rcn, Rteam=0, Kteam=0, KcnOv=null){
+function compute(key, W, X, Rcn, Rteam=0, Kteam=0, KcnOv=null, cbOv=null){
   const r = ROLES[key], isCtv = r.type==='ctv', isMgr = r.type==='mgr';
-  const S = isCtv ? 0 : W*r.cb, H = isCtv ? 0 : W*(1-r.cb);
+  const cb = cbOv ?? r.cb;
+  const S = isCtv ? 0 : W*cb, H = isCtv ? 0 : W*(1-cb);
   const Kcn = isCtv ? 0 : (KcnOv ?? H*X);
   const Pcn = Kcn>0 ? Rcn/Kcn : 0;
   let Kunit=0, counted=0, Punit=0, Pteam=0;
@@ -586,8 +598,9 @@ function renderDoc(){
 /* ============================================================================
    BẢNG TÍNH
    ============================================================================ */
-const st = { key:'sales', W:0, X:10, rampIdx:3, Rcn:0, pCn:1, Kteam:0, Rteam:0, pTeam:1, kcnOv:null, kpi:null };
-const curH = () => { const r=ROLES[st.key]; return r.type==='ctv' ? 0 : st.W*(1-r.cb); };
+const st = { key:'sales', W:0, X:10, rampIdx:3, Rcn:0, pCn:1, Kteam:0, Rteam:0, pTeam:1, kcnOv:null, kpi:null, cb:null, person:null };
+const curCb = () => st.cb ?? ROLES[st.key].cb;
+const curH = () => { const r=ROLES[st.key]; return r.type==='ctv' ? 0 : st.W*(1-curCb()); };
 const curKcn = () => st.kcnOv ?? curH()*st.X;
 
 function effX(){ const r=ROLES[st.key]; return (r.ramp && st.rampIdx<r.ramp.length) ? r.ramp[st.rampIdx] : r.X; }
@@ -596,14 +609,30 @@ function setRole(key){
   st.key = key; const r = ROLES[key];
   st.W = r.type==='ctv' ? 0 : defaultW(r);
   st.rampIdx = r.ramp ? r.ramp.length : 0;
-  st.X = effX(); st.kcnOv = null; st.kpi = null;
+  st.X = effX(); st.kcnOv = null; st.kpi = null; st.cb = null;
   st.pCn = 1; st.pTeam = 1;
   st.Rcn = r.type==='ctv' ? 30e6 : curKcn();
   st.Kteam = r.type==='mgr' ? KTEAM_DEFAULT_MULT*curH() : 0;
   st.Rteam = st.Kteam;
   sync(); recalc();
 }
-function resetDefaults(){ setRole(st.key); }
+function resetDefaults(){ if (st.person) setCalcPerson(st.person, st.kpi); else setRole(st.key); }
+// Bảng tính của một nhân sự cụ thể (khóa chức danh, lương W, tỷ lệ CB/HS theo hồ sơ; áp KPI tháng nếu có)
+function setCalcPerson(u, k){
+  const key = ROLES[u.title] ? u.title : 'sales';
+  st.person = null; setRole(key);
+  st.person = u;
+  const r = ROLES[key];
+  if (r.type !== 'ctv'){
+    st.W = k ? (k.w || u.salary_w || 0) : (u.salary_w || 0);
+    st.cb = k && k.cb != null ? k.cb : (u.cb_ratio ?? null);
+    if (k){ st.X = k.x; st.kcnOv = k.kcn; st.kpi = k; }
+    st.pCn = 1; st.Rcn = curKcn();
+    if (r.type === 'mgr'){ st.Kteam = k && k.kteam != null ? k.kteam : KTEAM_DEFAULT_MULT*curH(); st.pTeam = 1; st.Rteam = st.Kteam; }
+  }
+  sync(); recalc();
+}
+function clearCalcPerson(){ st.person = null; setRole(st.key); }
 function onW(v){ st.W = parseInt(v,10); if (ROLES[st.key].type!=='ctv') st.Rcn = st.pCn*curKcn(); sync(); recalc(); }
 function onRamp(v){ st.rampIdx = parseInt(v,10); st.X = effX(); st.kcnOv = null; st.Rcn = st.pCn*curKcn(); sync(); recalc(); }
 function onX(v){
@@ -650,13 +679,16 @@ function sync(){
   $('x-input').value = isCtv ? '' : st.X;
   $('kcn-input').value = isCtv ? 'Không áp dụng' : fmt(curKcn());
   $('role-select').value = st.key;
+  $('role-select').disabled = !!st.person;
   $('w-box').classList.toggle('hidden', isCtv);
   if (!isCtv){
-    const s = $('w-slider'); s.min=r.min; s.max=r.max; s.value=st.W;
-    $('w-min').textContent = 'Min: '+fmt(r.min); $('w-max').textContent = 'Max: '+fmt(r.max);
-    $('w-ratio').textContent = `${r.cb*100}% CB - ${(1-r.cb)*100}% HS`;
+    const s = $('w-slider'); s.min=Math.min(r.min, st.W); s.max=Math.max(r.max, st.W); s.value=st.W; s.disabled = !!st.person;
+    $('w-min').textContent = st.person ? 'Theo hồ sơ nhân sự' : 'Min: '+fmt(r.min);
+    $('w-max').textContent = st.person ? `Khung ${rng(r.min,r.max)}` : 'Max: '+fmt(r.max);
+    const cb = curCb();
+    $('w-ratio').textContent = `${Math.round(cb*1000)/10}% CB - ${Math.round((1-cb)*1000)/10}% HS`;
   }
-  $('ramp-box').classList.toggle('hidden', !r.ramp);
+  $('ramp-box').classList.toggle('hidden', !r.ramp || !!st.person);
   if (r.ramp){
     $('ramp-select').innerHTML = r.ramp.map((x,i)=>`<option value="${i}">Tháng thứ ${i+1} (x${x})</option>`).join('') + `<option value="${r.ramp.length}">Từ tháng thứ ${r.ramp.length+1} (x${r.X})</option>`;
     $('ramp-select').value = st.rampIdx;
@@ -681,9 +713,10 @@ function line(tag, color, title, sub, val){
 
 function recalc(){
   const r = ROLES[st.key], isCtv=r.type==='ctv', isMgr=r.type==='mgr';
-  const c = compute(st.key, st.W, st.X, st.Rcn, st.Rteam, st.Kteam, st.kcnOv);
+  const c = compute(st.key, st.W, st.X, st.Rcn, st.Rteam, st.Kteam, st.kcnOv, st.cb);
   const rb = $('role-badge');
-  rb.textContent = isCtv ? 'Hoa hồng thuần' : isMgr ? 'Cấp quản lý • 40/60' : 'Cấp nhân viên • 50/50';
+  const cbP = Math.round(curCb()*1000)/10;
+  rb.textContent = isCtv ? 'Hoa hồng thuần' : `${isMgr ? 'Cấp quản lý' : 'Cấp nhân viên'} • ${cbP}/${Math.round((100-cbP)*10)/10}`;
   rb.className = 'text-xs px-2.5 py-1 rounded-full font-bold ' + (isCtv?'bg-gold-100 text-gold-800':isMgr?'bg-redsun-100 text-redsun-800':'bg-emerald-100 text-emerald-800');
   $('w-display').textContent = fmt(st.W);
   $('v-s').textContent = isCtv?'—':fmt(c.S); $('v-h').textContent = isCtv?'—':fmt(c.H);
@@ -693,7 +726,9 @@ function recalc(){
   $('kcn-reset').textContent = isCtv ? '' : (st.kcnOv != null ? '↺ Tự tính = H × X' : '= H × X (sửa được)');
   const bn = $('calc-kpi-banner');
   if (st.kpi){ bn.className='p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800';
-    bn.innerHTML = `Đang dùng <b>KPI được giao tháng ${st.kpi.month}/${st.kpi.year}</b>: X = ${st.kpi.x}, target cá nhân ${fmt(st.kpi.kcn)}${st.kpi.kteam?`, target đội ${fmt(st.kpi.kteam)}`:''}. Nhập doanh số thực tế để ước tính thu nhập.`; }
+    bn.innerHTML = `${st.person ? `<b>${escH(st.person.name)}</b> • ` : ''}Đang dùng <b>KPI được giao tháng ${st.kpi.month}/${st.kpi.year}</b>: X = ${st.kpi.x}, target cá nhân ${fmt(st.kpi.kcn)}${st.kpi.kteam?`, target đội ${fmt(st.kpi.kteam)}`:''}. Nhập doanh số thực tế để ước tính thu nhập.`; }
+  else if (st.person){ bn.className='p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900';
+    bn.innerHTML = `<b>${escH(st.person.name)}</b> • Tháng này chưa có KPI được giao: đang tính theo định mức của chức danh (X = ${st.X}, target = H × X).`; }
   else bn.className='hidden';
 
   const rcnB = $('rcn-badge');
@@ -709,7 +744,7 @@ function recalc(){
       <div class="p-2.5 bg-slate-50 rounded-lg border border-slate-200"><span class="text-slate-400 block">% đội / % đơn vị</span><b>${pctFloor(c.Pteam)} / ${pctFloor(c.Punit)}</b></div>`;
   }
 
-  $('o-role').textContent = r.name + (r.ramp && st.rampIdx<r.ramp.length ? ` • Tháng thứ ${st.rampIdx+1}` : '');
+  $('o-role').textContent = (st.person ? st.person.name + ' • ' : '') + r.name + (!st.person && r.ramp && st.rampIdx<r.ramp.length ? ` • Tháng thứ ${st.rampIdx+1}` : '');
   $('o-total').textContent = fmt(c.N);
 
   let html = '';
@@ -736,7 +771,7 @@ function recalc(){
     const goal = c.Pcn < 1 ? 1 : c.Pcn < 1.2 ? 1.2 : null;
     if (goal){
       const need = goal*c.Kcn - st.Rcn;
-      const after = compute(st.key, st.W, st.X, goal*c.Kcn, st.Rteam, st.Kteam, st.kcnOv);
+      const after = compute(st.key, st.W, st.X, goal*c.Kcn, st.Rteam, st.Kteam, st.kcnOv, st.cb);
       next = `Bán thêm ${fmt(need)} để đạt ${goal*100}% KPI → thu nhập ${fmt(after.N)}`;
     } else next = '🔥 Đã vượt 120% KPI';
   }

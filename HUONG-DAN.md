@@ -6,9 +6,9 @@
 3. Quên mật khẩu: liên hệ Admin để được **cấp lại mật khẩu tạm**.
 
 ## 2. Admin: tạo tài khoản nhân viên
-**Cách 1 – Từng người:** tab **Nhân viên** → **＋ Thêm nhân viên** → nhập email, họ tên, chức danh, quyền, quản lý trực tiếp, lương W → **Tạo tài khoản** → bấm **Sao chép nội dung** và gửi riêng cho nhân viên.
+**Cách 1 – Từng người:** tab **Nhân viên** → **＋ Thêm nhân viên** → nhập email, họ tên, chức danh, quyền, quản lý trực tiếp, **tổng lương W** và **tỷ lệ lương cơ bản (%)** (để trống = theo chức danh: quản lý 40%, nhân viên 50%) → form hiện ngay lương cơ bản S, lương hiệu suất H và target mặc định → **Tạo tài khoản** → bấm **Sao chép nội dung** và gửi riêng cho nhân viên.
 
-**Cách 2 – Nhiều người từ file:** tab **Nhân viên** → **⇪ Nhập từ file CSV**. Các cột: `tai_khoan` (hoặc `email`), `ho_ten`, `chuc_danh`, `mat_khau` (có thì giữ nguyên, trống thì tạo mật khẩu tạm), `luong_w`, `quan_ly` (email quản lý trực tiếp). Dùng được luôn file `danh-sach-tai-khoan.csv` của công cụ cũ.
+**Cách 2 – Nhiều người từ file:** tab **Nhân viên** → **⇪ Nhập từ file CSV**. Các cột: `tai_khoan` (hoặc `email`), `ho_ten`, `chuc_danh`, `mat_khau` (có thì giữ nguyên, trống thì tạo mật khẩu tạm), `luong_w`, `ty_le_cb` (% lương cơ bản, vd 40), `quan_ly` (email quản lý trực tiếp). Dùng được luôn file `danh-sach-tai-khoan.csv` của công cụ cũ.
 
 Sau khi nhập: kiểm tra và bổ sung **lương W**, **quản lý trực tiếp** cho từng người (nút **Sửa**). Lương W và quản lý trực tiếp quyết định target và phạm vi quản lý.
 
@@ -24,7 +24,13 @@ Tab **Giao KPI**:
 
 > Thứ tự nên làm: giao cho **nhân viên** trước → **Team Lead** → **Trưởng phòng** → **Giám đốc KD**, để target đội cộng đúng số mới nhất.
 
-## 4. Nhân viên: xem KPI & ước tính thu nhập
+## 4. Bảng tính thu nhập
+- **Nhân viên khối kinh doanh**: bảng tính tự mở đúng **bảng lương của mình** (chức danh, lương W, tỷ lệ CB/HS theo hồ sơ) và áp KPI tháng hiện tại. Chỉ cần nhập doanh số thực tế.
+- **Quản lý**: ô **Bảng tính lương của** cho phép chọn chính mình hoặc **nhân viên dưới quyền** để xem bảng tính của họ; ô **Áp dụng KPI tháng** chọn tháng cần xem.
+- **Admin**: chọn được mọi nhân viên, hoặc **Mô phỏng tự do** để thử kịch bản với chức danh/lương bất kỳ.
+- Doanh số nhập vào bảng tính chỉ để ước tính, không được lưu.
+
+## 5. Nhân viên: xem KPI & ước tính thu nhập
 - Tab **KPI của bạn**: chỉ tiêu tháng hiện tại và cả năm.
 - Bấm **Ước tính thu nhập với KPI này** → bảng tính tự điền hệ số X, target; nhập doanh số thực tế để xem thu nhập dự kiến.
 - Trong bảng tính có thể tự sửa **Hệ số X** và **Target cá nhân** để thử các kịch bản (không ảnh hưởng KPI đã giao).

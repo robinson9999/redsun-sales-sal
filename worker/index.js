@@ -110,10 +110,14 @@ async function ensureSchema(env) {
     await env.DB.prepare(`INSERT INTO users (email,name,title,app_role,salary_w,pw_hash,must_change,created_at)
       VALUES (?1,?2,?3,'admin',0,?4,1,?5)`).bind(SEED_ADMIN.email, SEED_ADMIN.name, SEED_ADMIN.title, SEED_ADMIN.hash, now()).run();
   }
+  // Nâng cấp cấu trúc cho dữ liệu đã có (bỏ qua nếu cột đã tồn tại)
+  for (const sql of ['ALTER TABLE users ADD COLUMN cb_ratio REAL', 'ALTER TABLE kpis ADD COLUMN cb REAL']) {
+    try { await env.DB.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(String(e.message))) throw e; }
+  }
   schemaReady = true;
 }
 
-const USER_COLS = 'id,email,name,title,app_role,manager_id,salary_w,start_date,active,must_change';
+const USER_COLS = 'id,email,name,title,app_role,manager_id,salary_w,cb_ratio,start_date,active,must_change';
 
 async function subtreeIds(env, managerId) {
   const r = await env.DB.prepare(`WITH RECURSIVE t(id) AS (
@@ -149,9 +153,12 @@ function publicUser(u) {
 }
 
 /* ---------------------------- KPI ---------------------------- */
-function defaultKcn(u, x) {
+function cbOf(u) {
   const t = TITLES[u.title] || TITLES.other;
-  return Math.round((u.salary_w || 0) * (1 - t.cb) * x);
+  return u.cb_ratio == null ? t.cb : u.cb_ratio;
+}
+function defaultKcn(u, x) {
+  return Math.round((u.salary_w || 0) * (1 - cbOf(u)) * x);
 }
 // Target đơn vị của một người trong tháng = K_cn + K_đội (nếu có)
 async function unitTarget(env, u, y, m) {
@@ -247,9 +254,9 @@ async function api(req, env, url, me) {
     const v = await validateUser(env, body, null);
     if (v.error) return bad(v.error);
     const pw = tempPassword();
-    const r = await env.DB.prepare(`INSERT INTO users (email,name,title,app_role,manager_id,salary_w,start_date,active,pw_hash,must_change,created_at)
-        VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8,1,?9)`)
-      .bind(v.email, v.name, v.title, v.app_role, v.manager_id, v.salary_w, v.start_date, await hashPassword(pw), now()).run();
+    const r = await env.DB.prepare(`INSERT INTO users (email,name,title,app_role,manager_id,salary_w,cb_ratio,start_date,active,pw_hash,must_change,created_at)
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,1,?9,1,?10)`)
+      .bind(v.email, v.name, v.title, v.app_role, v.manager_id, v.salary_w, v.cb_ratio, v.start_date, await hashPassword(pw), now()).run();
     return json({ ok: true, id: r.meta.last_row_id, temp_password: pw });
   }
   if (p === '/api/users/import' && method === 'POST') {
@@ -263,9 +270,9 @@ async function api(req, env, url, me) {
       const given = String(r.password || '');
       if (given && given.length < 8) { skipped.push({ email: v.email, reason: 'Mật khẩu dưới 8 ký tự.' }); continue; }
       const pw = given || tempPassword();
-      await env.DB.prepare(`INSERT INTO users (email,name,title,app_role,salary_w,start_date,active,pw_hash,must_change,created_at)
-          VALUES (?1,?2,?3,?4,?5,?6,1,?7,1,?8)`)
-        .bind(v.email, v.name, v.title, v.app_role, v.salary_w, v.start_date, await hashPassword(pw), now()).run();
+      await env.DB.prepare(`INSERT INTO users (email,name,title,app_role,salary_w,cb_ratio,start_date,active,pw_hash,must_change,created_at)
+          VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8,1,?9)`)
+        .bind(v.email, v.name, v.title, v.app_role, v.salary_w, v.cb_ratio, v.start_date, await hashPassword(pw), now()).run();
       created.push({ email: v.email, name: v.name, temp_password: given ? null : pw, manager_email: normEmail(r.manager_email) });
     }
     // Gán quản lý trực tiếp theo email (sau khi đã tạo đủ người)
@@ -293,8 +300,8 @@ async function api(req, env, url, me) {
       const c = await env.DB.prepare(`SELECT COUNT(*) AS n FROM users WHERE app_role='admin' AND active=1 AND id<>?1`).bind(id).first();
       if (!c.n) return bad('Phải còn ít nhất một Admin đang hoạt động.');
     }
-    const stmts = [env.DB.prepare(`UPDATE users SET email=?1,name=?2,title=?3,app_role=?4,manager_id=?5,salary_w=?6,start_date=?7,active=?8 WHERE id=?9`)
-      .bind(v.email, v.name, v.title, v.app_role, v.manager_id, v.salary_w, v.start_date, active, id)];
+    const stmts = [env.DB.prepare(`UPDATE users SET email=?1,name=?2,title=?3,app_role=?4,manager_id=?5,salary_w=?6,cb_ratio=?7,start_date=?8,active=?9 WHERE id=?10`)
+      .bind(v.email, v.name, v.title, v.app_role, v.manager_id, v.salary_w, v.cb_ratio, v.start_date, active, id)];
     if (!active) stmts.push(env.DB.prepare('DELETE FROM sessions WHERE user_id=?1').bind(id));
     await env.DB.batch(stmts);
     return json({ ok: true });
@@ -373,12 +380,12 @@ async function api(req, env, url, me) {
         const kcn = kcnOv ?? defaultKcn(u, x);
         let kteam = null;
         if (t.mgr) kteam = kteamOv ?? await suggestTeamTarget(env, u.id, year, mo, factor);
-        const st = env.DB.prepare(`INSERT INTO kpis (user_id,year,month,w,x,kcn,kteam,note,assigned_by,assigned_at)
-            VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
-            ON CONFLICT(user_id,year,month) DO UPDATE SET w=excluded.w, x=excluded.x, kcn=excluded.kcn, kteam=excluded.kteam,
+        const st = env.DB.prepare(`INSERT INTO kpis (user_id,year,month,w,x,kcn,kteam,note,assigned_by,assigned_at,cb)
+            VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+            ON CONFLICT(user_id,year,month) DO UPDATE SET w=excluded.w, x=excluded.x, kcn=excluded.kcn, kteam=excluded.kteam, cb=excluded.cb,
               note=excluded.note, assigned_by=excluded.assigned_by, assigned_at=excluded.assigned_at`)
-          .bind(u.id, year, mo, u.salary_w, x, kcn, kteam, String(body.note || '').slice(0, 500), me.id, now());
-        if (body.dry_run) preview.push({ user_id: u.id, name: u.name, title: u.title, month: mo, w: u.salary_w, x, kcn, kteam });
+          .bind(u.id, year, mo, u.salary_w, x, kcn, kteam, String(body.note || '').slice(0, 500), me.id, now(), cbOf(u));
+        if (body.dry_run) preview.push({ user_id: u.id, name: u.name, title: u.title, month: mo, w: u.salary_w, cb: cbOf(u), x, kcn, kteam });
         else { await st.run(); }   // chạy tuần tự để K_đội của cấp trên thấy KPI vừa giao cho cấp dưới
       }
     }
@@ -402,6 +409,10 @@ async function validateUser(env, b, selfId) {
   const title = TITLES[b.title] ? b.title : null;
   const app_role = APP_ROLES.includes(b.app_role) ? b.app_role : null;
   const salary_w = Math.max(0, Math.round(+b.salary_w || 0));
+  // Tỷ lệ lương cơ bản dạng thập phân 0–1 (vd 0.4 = 40%); để trống = theo chức danh
+  let cb_ratio = b.cb_ratio === '' || b.cb_ratio == null ? null : +b.cb_ratio;
+  if (cb_ratio != null && !(cb_ratio >= 0 && cb_ratio <= 1)) return { error: 'Tỷ lệ lương cơ bản phải từ 0% đến 100%.' };
+  if (cb_ratio != null) cb_ratio = Math.round(cb_ratio * 1000) / 1000;
   const manager_id = b.manager_id ? +b.manager_id : null;
   const start_date = b.start_date && /^\d{4}-\d{2}-\d{2}$/.test(b.start_date) ? b.start_date : null;
   if (!isEmail(email)) return { error: 'Email không hợp lệ.' };
@@ -416,7 +427,7 @@ async function validateUser(env, b, selfId) {
     if (!mg) return { error: 'Quản lý trực tiếp không tồn tại.' };
     if (selfId && (await subtreeIds(env, selfId)).has(manager_id)) return { error: 'Không thể chọn cấp dưới làm quản lý (tạo vòng lặp).' };
   }
-  return { email, name, title, app_role, manager_id, salary_w, start_date };
+  return { email, name, title, app_role, manager_id, salary_w, cb_ratio, start_date };
 }
 
 /* ---------------------------- Điều hướng ---------------------------- */
