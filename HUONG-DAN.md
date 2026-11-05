@@ -44,18 +44,33 @@ Tab **Phiếu khảo sát**:
 
 Quyền xem: Sales xem phiếu của mình; Quản lý xem phiếu của mình và nhân viên dưới quyền; Admin xem tất cả. Chỉ người lập (hoặc Admin) được sửa; Sales chỉ xóa được phiếu nháp.
 
-### Admin: cài đặt email
-**a) Email nhận phiếu:** tab **Phiếu khảo sát** → khung **Cài đặt email nhận phiếu** → nhập các email (cách nhau bởi dấu phẩy) → **Lưu cài đặt**.
-
-**b) Dịch vụ gửi email (làm 1 lần)** – khuyến nghị **Resend**, không ảnh hưởng hộp thư công ty đang dùng:
-1. Tạo tài khoản tại resend.com → **Domains → Add domain** → nhập tên miền phụ, ví dụ `mail.redsun.vn` → thêm các bản ghi DNS Resend yêu cầu vào DNS của redsun.vn trên Cloudflare → chờ **Verified**.
-2. **API Keys → Create API key** (quyền Sending) → sao chép khóa.
-3. Cloudflare Dashboard → **Workers & Pages → redsun-quy-che → Settings → Variables and Secrets**:
-   - `RESEND_API_KEY` – loại **Secret** – dán khóa vừa tạo
-   - `MAIL_FROM` – loại **Text** – ví dụ `Redsun Khảo sát <khaosat@mail.redsun.vn>` (đuôi email phải là tên miền đã xác minh)
-4. Mở lại tab Phiếu khảo sát: dòng "Dịch vụ gửi" hiện **Resend**. Các phiếu đã hoàn tất trước đó bấm **Gửi lại email** để gửi.
-
-Phương án khác: dịch vụ email của Cloudflare (binding `send_email` tên `EMAIL` + biến `MAIL_FROM`). Lưu ý gói miễn phí chỉ gửi tới địa chỉ đã xác minh trong Email Routing, và bật Email Routing sẽ thay bản ghi MX của tên miền.
+### Admin: cài đặt email khảo sát
+Chỉ **Admin** thấy tab **⚙ Cài đặt** (Quản lý và Sales không thấy và không gọi được API cài đặt). Xem mục 7.
 
 ### Thêm mẫu phiếu mới
 Mẫu phiếu khai báo trong `public/survey-lib.js` (mảng `TEMPLATES`): mỗi phiếu gồm các mục, mỗi mục gồm bảng câu hỏi, nhóm chọn nhiều (`checks`, có thể giới hạn `max`), chọn một (`radio`). Thêm phiếu mới chỉ cần thêm một phần tử vào mảng; màn hình điền, email và PDF tự hiển thị theo.
+
+## 7. Admin: Cài đặt hệ thống (tab ⚙ Cài đặt)
+Gồm 4 phần, bấm **Lưu cài đặt** ở cuối trang để lưu.
+
+**1. Thông tin chung:** tên công ty (hiện trong email và PDF).
+
+**2. Máy chủ gửi email (SMTP):** dùng chính một hộp thư công ty để gửi (khuyến nghị tạo riêng hộp thư `khaosat@redsun.vn`).
+- Bấm **Gmail / Google Workspace**, **Microsoft 365** hoặc **Zoho** để điền sẵn máy chủ, cổng và kiểu bảo mật.
+- Nhập **Tài khoản SMTP** (địa chỉ email), **Mật khẩu**, **Email người gửi** (nên trùng tài khoản) và **Tên người gửi**.
+- Gmail / Google Workspace: bật **Xác minh 2 bước** cho tài khoản, rồi vào myaccount.google.com → **Bảo mật** → **Mật khẩu ứng dụng** → tạo mật khẩu 16 ký tự và dán vào ô Mật khẩu. Máy chủ `smtp.gmail.com`, cổng **465**, **SSL/TLS**.
+- Microsoft 365: máy chủ `smtp.office365.com`, cổng **587**, **STARTTLS**; quản trị M365 cần bật **Authenticated SMTP** cho hộp thư này.
+- Cloudflare chặn cổng 25, chỉ dùng **465 (SSL/TLS)** hoặc **587 (STARTTLS)**.
+- Mật khẩu được mã hóa khi lưu và **không bao giờ hiển thị lại**. Ô mật khẩu để trống = giữ mật khẩu cũ.
+- Bấm **Lưu & gửi thử** để gửi một email thử tới địa chỉ nhập bên cạnh. Nếu lỗi, hệ thống báo nguyên nhân bằng tiếng Việt (sai mật khẩu, sai cổng, máy chủ từ chối người gửi…).
+
+**3. Email nhận phiếu khảo sát:**
+- **To**: những người nhận chính (bắt buộc ít nhất 1 email).
+- **CC**: bản copy, người nhận thấy danh sách này. **BCC**: bản copy ẩn, phù hợp để lưu trữ.
+- **Tiền tố tiêu đề**, ví dụ `[Khảo sát]`.
+- Tùy chọn **gửi kèm bản sao cho Sales lập phiếu** và **kèm mục H nội bộ** trong email.
+- Người nhận bấm *Trả lời* sẽ trả lời thẳng cho Sales lập phiếu. Phiếu hoàn tất khi chưa cấu hình email vẫn được lưu; sau khi cấu hình xong, mở phiếu và bấm **Gửi lại email**.
+
+**4. Bảo mật đăng nhập:** thời hạn phiên đăng nhập (ngày), số lần nhập sai trước khi tạm khóa, thời gian tạm khóa (phút).
+
+*(Tùy chọn, tăng bảo mật)* Cloudflare → Workers & Pages → redsun-quy-che → Settings → Variables and Secrets → thêm **Secret** `SETTINGS_KEY` (chuỗi ngẫu nhiên dài) để mã hóa mật khẩu SMTP bằng khóa riêng. Sau khi thêm, vào Cài đặt nhập lại mật khẩu SMTP một lần.

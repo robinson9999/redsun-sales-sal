@@ -6,6 +6,7 @@
   "name": "redsun-quy-che",
   "main": "worker/index.js",
   "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -15,6 +16,6 @@
     { "binding": "DB", "database_name": "redsun-quy-che-db" }
   ],
   "observability": { "enabled": true },
-  // Giữ các biến cấu hình đặt trên Dashboard (RESEND_API_KEY, MAIL_FROM) khi deploy từ GitHub
+  // Giữ các biến/secret đặt trên Dashboard (vd SETTINGS_KEY) khi deploy từ GitHub
   "keep_vars": true
 }

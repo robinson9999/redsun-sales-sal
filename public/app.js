@@ -76,12 +76,13 @@
   window.appInit = async function () {
     try {
       const d = await api('/api/me');
-      S.me = d.user; S.manager = d.manager; S.titles = d.titles;
+      S.me = d.user; S.manager = d.manager; S.titles = d.titles; S.company = d.company;
       document.getElementById('me-name').textContent = S.me.name;
       document.getElementById('me-role').textContent = `${ROLE_LABEL[S.me.app_role]}${S.me.title !== 'other' ? ' • ' + titleName(S.me.title) : ''}`;
       const canAssign = ['admin', 'manager'].includes(S.me.app_role);
       document.getElementById('tab-btn-assign').classList.toggle('hidden', !canAssign);
       document.getElementById('tab-btn-staff').classList.toggle('hidden', !canAssign);
+      document.getElementById('tab-btn-settings').classList.toggle('hidden', S.me.app_role !== 'admin');
       switchTab(tabFromHash());
       if (!S.me.must_change) initCalc();
       if (S.me.must_change) openPwModal(true);
@@ -145,6 +146,7 @@
     if (!S.me || S.me.must_change) return;
     if (t === 'kpi') renderKpi();
     if (t === 'survey') renderSurvey();
+    if (t === 'settings') renderSettings();
     if (t === 'assign') renderAssign();
     if (t === 'staff') renderStaff(true);
   };
@@ -597,22 +599,18 @@
       const [d, st] = await Promise.all([api('/api/surveys'), api('/api/settings/survey')]);
       SV.list = d.surveys; SV.settings = st;
       const admin = S.me.app_role === 'admin', many = S.me.app_role !== 'staff';
-      const mailOk = !!st.mail.provider, rcp = st.recipients;
+      const mailOk = st.mail_ready, rcp = st.recipients;
+      const toSettings = admin ? ' <button data-go-settings class="font-bold underline">Mở Cài đặt</button>' : ' Vui lòng báo Admin.';
+      const mailInfo = !mailOk
+        ? `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Hệ thống <b>chưa cấu hình máy chủ gửi email (SMTP)</b>. Phiếu vẫn được lưu và xuất PDF bình thường; email gửi được sau khi Admin cấu hình.${toSettings}</div>`
+        : !rcp.length ? `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Chưa cài đặt email nhận phiếu.${toSettings}</div>`
+        : `<div class="text-sm text-slate-600">Phiếu hoàn tất sẽ được gửi tới: <b>${rcp.map(esc).join(', ')}</b>${st.cc.length ? ` • bản copy: ${st.cc.map(esc).join(', ')}` : ''}${st.cc_sales ? ' • kèm bản sao cho Sales lập phiếu' : ''}.${admin ? ' <button data-go-settings class="text-redsun-700 font-semibold hover:underline">Thay đổi</button>' : ''}</div>`;
       const tplCards = SV.lib.TEMPLATES.map((t) => card(`<div class="p-5 flex flex-col h-full">
           <div class="text-3xl">${t.icon}</div><h3 class="font-extrabold text-slate-900 mt-2">${esc(t.name)}</h3>
           <p class="text-sm text-slate-500 mt-1 flex-grow">${esc(t.description)}</p>
           <button data-start="${t.id}" class="${BTN_P} mt-4 self-start">Bắt đầu điền phiếu →</button></div>`)).join('');
-      const mailInfo = !mailOk
-        ? `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Hệ thống <b>chưa cấu hình dịch vụ gửi email</b>. Phiếu vẫn được lưu và xuất PDF bình thường; email sẽ gửi được sau khi Admin cấu hình.</div>`
-        : !rcp.length ? `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Chưa cài đặt email nhận phiếu.${admin ? ' Nhập ở ô bên dưới.' : ' Vui lòng báo Admin.'}</div>`
-        : `<div class="text-sm text-slate-600">Phiếu hoàn tất sẽ được gửi tới: <b>${rcp.map(esc).join(', ')}</b>${st.cc_sales ? ' (kèm bản sao cho Sales lập phiếu)' : ''}.</div>`;
-      const settingsCard = admin ? card(`<div class="p-5 space-y-3"><h3 class="font-bold text-slate-900">Cài đặt email nhận phiếu <span class="text-xs font-normal text-slate-400">(Admin)</span></h3>
-          ${field('Email nhận kết quả (cách nhau bởi dấu phẩy)', `<textarea id="sv-rcp" rows="2" class="${inputCls}" placeholder="kinhdoanh@redsun.vn, giamdoc@redsun.vn">${esc(rcp.join(', '))}</textarea>`)}
-          <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="sv-cc" ${st.cc_sales ? 'checked' : ''}> Gửi kèm bản sao cho Sales lập phiếu</label>
-          <p class="text-xs text-slate-500">Dịch vụ gửi: ${mailOk ? `<b>${st.mail.provider === 'resend' ? 'Resend' : st.mail.provider === 'cloudflare' ? 'Cloudflare Email' : 'Chế độ thử (chỉ ghi log)'}</b> • Người gửi: ${esc(st.mail.from || '')}` : '<b class="text-amber-700">chưa cấu hình</b> (xem hướng dẫn trong HUONG-DAN.md)'}</p>
-          ${errBox('sv-set-err')}<div class="flex items-center gap-3"><button id="sv-save-set" class="${BTN_S}">Lưu cài đặt</button><span id="sv-set-ok" class="text-sm text-emerald-700"></span></div></div>`) : '';
       el.innerHTML = pageHead('Phiếu khảo sát dự án', 'Chọn phiếu, điền cùng khách hàng; kết quả được lưu, gửi email và xuất PDF.')
-        + `<div class="space-y-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${tplCards}</div>${mailInfo}${settingsCard}
+        + `<div class="space-y-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${tplCards}</div>${mailInfo}
           ${card(`<div class="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div><h3 class="font-bold text-slate-900">${many ? 'Phiếu đã lập' : 'Phiếu của bạn'}</h3><p class="text-xs text-slate-500">${d.surveys.length} phiếu${many && !admin ? ' (của bạn và nhân viên dưới quyền)' : ''}</p></div>
               <input id="sv-q" placeholder="Tìm khách hàng, mã phiếu…" value="${esc(SV.q)}" class="${inputCls} sm:w-72"></div>
@@ -642,12 +640,7 @@
       drawRows();
       document.getElementById('sv-q').oninput = (e) => { SV.q = e.target.value; drawRows(); };
       el.querySelectorAll('[data-start]').forEach((b) => b.onclick = () => startSurvey(b.dataset.start));
-      if (admin) document.getElementById('sv-save-set').onclick = async () => {
-        document.getElementById('sv-set-err').classList.add('hidden');
-        try { const r = await api('/api/settings/survey', { method: 'PUT', body: { recipients: document.getElementById('sv-rcp').value, cc_sales: document.getElementById('sv-cc').checked } });
-          document.getElementById('sv-rcp').value = r.recipients.join(', '); document.getElementById('sv-set-ok').textContent = `✔ Đã lưu ${r.recipients.length} email`; }
-        catch (e) { showErr('sv-set-err', e.message); }
-      };
+      el.querySelectorAll('[data-go-settings]').forEach((b) => b.onclick = () => switchTab('settings'));
     } catch (e) { el.innerHTML = errorCard(e.message); }
   }
 
@@ -771,7 +764,7 @@
         <button id="sv-resend" class="${BTN_S}">Gửi lại email</button>
         <button id="sv-pdf-in" class="${BTN_S}">⬇ PDF nội bộ (đủ mục H)</button>
         <button id="sv-pdf-out" class="${BTN_P}">⬇ PDF gửi khách</button></div>
-      <div class="space-y-4">${mailBox}${card(`<div class="p-5 sm:p-8">${SV.lib.renderReport(tpl, SV.ans, { internal: true, meta })}</div>`)}</div>`;
+      <div class="space-y-4">${mailBox}${card(`<div class="p-5 sm:p-8">${SV.lib.renderReport(tpl, SV.ans, { internal: true, meta: { ...meta, company: S.company } })}</div>`)}</div>`;
     document.getElementById('sv-back').onclick = goHome;
     if (canEdit) document.getElementById('sv-edit').onclick = () => { SV.view = 'fill'; renderFill(); window.scrollTo(0, 0); };
     const resend = async (btn) => { btn.disabled = true; btn.textContent = 'Đang gửi…';
@@ -790,10 +783,109 @@
       await loadScript('/vendor/pdfmake.min.js'); await loadScript('/vendor/vfs_fonts.js');
       const bg = getComputedStyle(document.querySelector('.rs-logo')).backgroundImage;
       const logo = (bg.match(/url\("?(data:image\/png;base64,[^")]+)"?\)/) || [])[1];
-      const doc = SV.lib.buildPdfDoc(SV.tpl, SV.ans, { internal, meta: { ...meta, company: CONFIG.company }, logo });
+      const doc = SV.lib.buildPdfDoc(SV.tpl, SV.ans, { internal, meta: { ...meta, company: S.company || CONFIG.company }, logo });
       const name = `Khao-sat-${slug(SV.lib.surveyTitle(SV.tpl, SV.ans))}-${meta.code}${internal ? '-noi-bo' : ''}.pdf`;
       window.pdfMake.createPdf(doc).download(name);
     } catch (e) { alert('Không tạo được PDF: ' + e.message); }
     finally { setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 800); }
+  }
+
+  /* =========================================================================
+     TRANG: CÀI ĐẶT HỆ THỐNG (chỉ Admin)
+     ========================================================================= */
+  const SMTP_PRESETS = {
+    gmail: { label: 'Gmail / Google Workspace', smtp_host: 'smtp.gmail.com', smtp_port: 465, smtp_security: 'ssl', hint: 'Bật xác minh 2 bước cho tài khoản, rồi tạo "Mật khẩu ứng dụng" (App Password) 16 ký tự và dán vào ô Mật khẩu. Không dùng mật khẩu đăng nhập Gmail.' },
+    m365: { label: 'Microsoft 365 / Outlook', smtp_host: 'smtp.office365.com', smtp_port: 587, smtp_security: 'starttls', hint: 'Admin Microsoft 365 cần bật "Authenticated SMTP" cho hộp thư gửi.' },
+    zoho: { label: 'Zoho Mail', smtp_host: 'smtp.zoho.com', smtp_port: 465, smtp_security: 'ssl', hint: 'Tài khoản bật 2 bước cần tạo Application-specific password.' }
+  };
+  async function renderSettings() {
+    const el = document.getElementById('tab-settings');
+    if (S.me.app_role !== 'admin') { el.innerHTML = errorCard('Chỉ Admin được truy cập cài đặt hệ thống.'); return; }
+    el.innerHTML = loading;
+    try {
+      const d = await api('/api/admin/settings');
+      const c = d.settings;
+      const sec = (title, sub, inner) => card(`<div class="p-5 sm:p-6"><h3 class="text-lg font-extrabold text-slate-900">${title}</h3>${sub ? `<p class="text-sm text-slate-500 mt-0.5 mb-4">${sub}</p>` : '<div class="mb-4"></div>'}${inner}</div>`);
+      const inp = (id, val, attrs = '') => `<input id="cf-${id}" value="${esc(val)}" class="${inputCls}" ${attrs}>`;
+      const chk = (id, on, label) => `<label class="flex items-start gap-2 text-sm text-slate-700"><input type="checkbox" id="cf-${id}" ${on ? 'checked' : ''} class="mt-0.5 w-4 h-4 accent-red-700"> <span>${label}</span></label>`;
+      const ta = (id, val, ph) => `<textarea id="cf-${id}" rows="2" class="${inputCls}" placeholder="${ph}">${esc(String(val || '').split(',').filter(Boolean).join(', '))}</textarea>`;
+      const status = d.mail_mode === 'smtp' ? `<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">Đã cấu hình</span>`
+        : d.mail_mode === 'log' ? `<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800">Chế độ thử (chỉ ghi log)</span>`
+        : `<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800">Chưa cấu hình</span>`;
+      el.innerHTML = pageHead('Cài đặt hệ thống', 'Chỉ Admin xem và thay đổi được các cài đặt này.') + `<div class="space-y-6 max-w-4xl">
+        ${sec('1. Thông tin chung', 'Hiển thị trên email và file PDF phiếu khảo sát.', `<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${field('Tên công ty', inp('company_name', c.company_name))}</div>`)}
+        ${sec(`2. Máy chủ gửi email (SMTP) ${status}`, 'Dùng để gửi email phiếu khảo sát. Cloudflare chặn cổng 25 – dùng cổng 465 (SSL/TLS) hoặc 587 (STARTTLS).', `
+          <div class="flex flex-wrap items-center gap-2 mb-4"><span class="text-xs text-slate-500">Điền nhanh:</span>${Object.entries(SMTP_PRESETS).map(([k, v]) => `<button data-preset="${k}" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold">${v.label}</button>`).join('')}</div>
+          <div id="cf-hint" class="hidden mb-4 p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900"></div>
+          <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
+            <div class="sm:col-span-3">${field('Máy chủ SMTP', inp('smtp_host', c.smtp_host, 'placeholder="smtp.gmail.com"'))}</div>
+            <div class="sm:col-span-1">${field('Cổng', inp('smtp_port', c.smtp_port, 'type="number" min="1" max="65535"'))}</div>
+            <div class="sm:col-span-2">${field('Bảo mật', `<select id="cf-smtp_security" class="${inputCls}">
+              <option value="ssl" ${c.smtp_security === 'ssl' ? 'selected' : ''}>SSL/TLS (cổng 465)</option>
+              <option value="starttls" ${c.smtp_security === 'starttls' ? 'selected' : ''}>STARTTLS (cổng 587)</option>
+              <option value="none" ${c.smtp_security === 'none' ? 'selected' : ''}>Không mã hóa (không khuyến nghị)</option></select>`)}</div>
+            <div class="sm:col-span-3">${field('Tên đăng nhập SMTP', inp('smtp_user', c.smtp_user, 'autocomplete="off" placeholder="thường là địa chỉ email"'))}</div>
+            <div class="sm:col-span-3">${field('Mật khẩu SMTP', `<input id="cf-smtp_pass" type="password" autocomplete="new-password" class="${inputCls}" placeholder="${d.smtp_pass_set ? '•••••••• đã lưu – để trống nếu không đổi' : 'Nhập mật khẩu / mật khẩu ứng dụng'}">`,
+              d.smtp_pass_set ? `<label class="inline-flex items-center gap-1.5 mt-1"><input type="checkbox" id="cf-pass_clear"> Xóa mật khẩu đã lưu</label>` : '')}</div>
+            <div class="sm:col-span-3">${field('Email người gửi (From)', inp('smtp_from_email', c.smtp_from_email, 'type="email" placeholder="khaosat@redsun.vn"'), 'Thường phải trùng tài khoản đăng nhập SMTP hoặc là bí danh hợp lệ của tài khoản đó.')}</div>
+            <div class="sm:col-span-3">${field('Tên người gửi', inp('smtp_from_name', c.smtp_from_name))}</div>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-3">🔒 Mật khẩu SMTP không bao giờ hiển thị lại trên giao diện. ${d.has_settings_key ? 'Mật khẩu được mã hóa bằng khóa SETTINGS_KEY của máy chủ.' : 'Có thể tăng bảo mật bằng cách thêm secret <code>SETTINGS_KEY</code> cho Worker trên Cloudflare (mật khẩu sẽ được mã hóa khi lưu lại).'}</p>
+          <div class="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center gap-2">
+            <span class="text-sm font-semibold text-slate-700">Gửi email thử tới</span>
+            <input id="cf-test_to" type="email" value="${esc(S.me.email)}" class="${inputCls} sm:w-72">
+            <button id="cf-test" class="${BTN_S} whitespace-nowrap">Lưu & gửi thử</button>
+          </div><div id="cf-test-res" class="mt-2 text-sm"></div>`)}
+        ${sec('3. Email phiếu khảo sát', 'Ai nhận kết quả khi Sales bấm "Hoàn tất & gửi".', `<div class="space-y-4">
+          ${field('Email nhận kết quả (To)', ta('survey_recipients', c.survey_recipients, 'kinhdoanh@redsun.vn, giamdoc@redsun.vn'), 'Nhiều email cách nhau bởi dấu phẩy. Bắt buộc có ít nhất 1 email để gửi được.')}
+          ${field('Email nhận bản copy (CC)', ta('survey_cc', c.survey_cc, 'truongphong@redsun.vn'), 'Người nhận thấy được danh sách CC.')}
+          ${field('Email nhận bản copy ẩn (BCC)', ta('survey_bcc', c.survey_bcc, 'luutru@redsun.vn'), 'Người nhận khác không thấy địa chỉ BCC. Phù hợp để lưu trữ.')}
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${field('Tiền tố tiêu đề email', inp('survey_subject_prefix', c.survey_subject_prefix, 'placeholder="[Khảo sát]"'))}</div>
+          ${chk('survey_cc_sales', c.survey_cc_sales === '1', 'Gửi kèm bản sao (CC) cho Sales lập phiếu')}
+          ${chk('survey_include_internal', c.survey_include_internal === '1', 'Kèm mục nội bộ (mục H – Sales đánh giá) trong email')}
+        </div>`)}
+        ${sec('4. Bảo mật đăng nhập', 'Áp dụng cho lần đăng nhập tiếp theo.', `<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          ${field('Thời hạn phiên đăng nhập (ngày)', inp('session_days', c.session_days, 'type="number" min="1" max="90"'), '1–90 ngày')}
+          ${field('Số lần nhập sai trước khi tạm khóa', inp('max_fails', c.max_fails, 'type="number" min="3" max="50"'), '3–50 lần')}
+          ${field('Thời gian tạm khóa (phút)', inp('lock_minutes', c.lock_minutes, 'type="number" min="1" max="1440"'), '1–1440 phút')}</div>`)}
+        ${errBox('cf-err')}
+        <div class="sticky bottom-4 z-30 flex items-center justify-end gap-3 p-3 rounded-2xl bg-white/95 backdrop-blur border border-slate-200 shadow-lg">
+          <span id="cf-ok" class="text-sm text-emerald-700"></span><button id="cf-save" class="${BTN_P}">Lưu cài đặt</button></div>
+      </div>`;
+      const v = (id) => document.getElementById('cf-' + id);
+      el.querySelectorAll('[data-preset]').forEach((b) => b.onclick = () => {
+        const p = SMTP_PRESETS[b.dataset.preset];
+        v('smtp_host').value = p.smtp_host; v('smtp_port').value = p.smtp_port; v('smtp_security').value = p.smtp_security;
+        const h = v('hint'); h.textContent = p.hint; h.classList.remove('hidden');
+      });
+      v('smtp_security').onchange = () => { const s2 = v('smtp_security').value; if (s2 === 'ssl') v('smtp_port').value = 465; if (s2 === 'starttls') v('smtp_port').value = 587; };
+      const collect = () => {
+        const b = {};
+        for (const k of ['company_name', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_recipients', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes']) b[k] = v(k).value;
+        b.survey_cc_sales = v('survey_cc_sales').checked; b.survey_include_internal = v('survey_include_internal').checked;
+        if (v('smtp_pass').value) b.smtp_pass = v('smtp_pass').value;
+        if (v('pass_clear') && v('pass_clear').checked) b.smtp_pass_clear = true;
+        return b;
+      };
+      const save = async () => {
+        v('err').classList.add('hidden'); v('ok').textContent = '';
+        await api('/api/admin/settings', { method: 'PUT', body: collect() });
+        v('smtp_pass').value = '';
+      };
+      v('save').onclick = async () => {
+        try { await save(); S.company = v('company_name').value; await renderSettings(); const ok = document.getElementById('cf-ok'); if (ok) { ok.textContent = '✔ Đã lưu cài đặt'; setTimeout(() => { ok.textContent = ''; }, 4000); } }
+        catch (e) { showErr('cf-err', e.message); }
+      };
+      v('test').onclick = async () => {
+        const res = v('test-res'); res.className = 'mt-2 text-sm text-slate-500'; res.textContent = 'Đang lưu và gửi thử…'; v('test').disabled = true;
+        try {
+          await save();
+          const r = await api('/api/admin/test-email', { method: 'POST', body: { to: v('test_to').value } });
+          res.className = 'mt-2 text-sm text-emerald-700';
+          res.textContent = r.mode === 'log' ? '✔ Chế độ thử: email đã được ghi log (chưa gửi thật).' : `✔ Đã gửi email thử tới ${v('test_to').value}. Kiểm tra hộp thư (cả mục Spam).`;
+        } catch (e) { res.className = 'mt-2 text-sm text-redsun-700'; res.textContent = '✖ ' + e.message; }
+        finally { v('test').disabled = false; }
+      };
+    } catch (e) { el.innerHTML = errorCard(e.message); }
   }
 })();

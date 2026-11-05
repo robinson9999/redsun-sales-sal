@@ -8,6 +8,7 @@
 - **Giao KPI** (Admin/Quản lý): chọn nhân viên, chọn tháng/năm, giao target; target đội tự cộng từ cấp dưới.
 - **Nhân viên**: Admin xem & quản lý toàn bộ; Quản lý chỉ xem cấp dưới của mình (mọi tầng).
 - **Phiếu khảo sát dự án**: Sales chọn phiếu, điền cùng khách, hoàn tất → lưu, gửi email tới danh sách cài sẵn, xuất PDF (bản gửi khách / bản nội bộ).
+- **Cài đặt hệ thống** (chỉ Admin): máy chủ SMTP gửi email (gửi thử), email nhận phiếu To/CC/BCC, bảo mật đăng nhập. Gửi qua thư viện `worker-mailer` (cổng 465/587; Cloudflare chặn cổng 25).
 
 > Repo private. Không commit mật khẩu, danh sách tài khoản thật (đã chặn trong `.gitignore`).
 
@@ -44,6 +45,6 @@ Cloudflare Workers Builds tự deploy mỗi khi đẩy lên nhánh `main`. Lần
 ```bash
 npm install
 npx wrangler dev        # http://localhost:8787 (D1 cục bộ trong .wrangler/)
-# Tạo file .dev.vars với dòng MAIL_MODE=log để thử gửi email (chỉ ghi log)
+# Tạo file .dev.vars với dòng MAIL_MODE=log để email chỉ ghi log (không gửi thật)
 npm run css             # biên dịch lại CSS khi sửa giao diện
 ```

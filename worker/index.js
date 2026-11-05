@@ -5,11 +5,10 @@
    - Mọi trang & file tĩnh đều yêu cầu đăng nhập, trừ trang /login
    ============================================================================= */
 
+import { WorkerMailer } from 'worker-mailer';
 import { getTemplate, sanitizeAnswers, validateAnswers, renderReport, renderText, surveyTitle } from '../public/survey-lib.js';
 
 const PBKDF2_ITER = 50000;               // Workers giới hạn tối đa 100.000; 50.000 để vừa CPU gói miễn phí
-const SESSION_DAYS = 7;
-const MAX_FAILS = 8, LOCK_MINUTES = 15;
 
 // Tham số chức danh (đồng bộ với ROLES trong public/index.html)
 const TITLES = {
@@ -192,64 +191,124 @@ async function suggestTeamTarget(env, managerId, y, m, factor = 1) {
   return Math.round(sum * factor);
 }
 
-/* ---------------------------- Cài đặt & Email ---------------------------- */
-async function getSetting(env, key, def = null) {
-  const r = await env.DB.prepare('SELECT value FROM settings WHERE key=?1').bind(key).first();
-  return r ? r.value : def;
+/* ---------------------------- Cài đặt hệ thống ---------------------------- */
+// Mặc định của từng cài đặt (lưu trong bảng settings dạng chuỗi)
+const SETTING_DEFAULTS = {
+  company_name: 'Công ty Đầu tư Công nghệ Redsun',
+  smtp_host: '', smtp_port: '587', smtp_security: 'starttls', smtp_user: '', smtp_pass: '',
+  smtp_from_email: '', smtp_from_name: 'Redsun Sales',
+  survey_recipients: '', survey_cc: '', survey_bcc: '', survey_cc_sales: '1', survey_include_internal: '1',
+  survey_subject_prefix: '[Khảo sát]',
+  session_days: '7', max_fails: '8', lock_minutes: '15'
+};
+async function getSettings(env) {
+  const r = await env.DB.prepare('SELECT key, value FROM settings').all();
+  const out = { ...SETTING_DEFAULTS };
+  for (const x of r.results) if (x.key in SETTING_DEFAULTS) out[x.key] = x.value ?? '';
+  return out;
 }
-async function setSetting(env, key, value) {
-  await env.DB.prepare('INSERT INTO settings (key,value) VALUES (?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(key, value).run();
+async function setSettings(env, obj) {
+  const stmts = Object.entries(obj).map(([k, v]) => env.DB.prepare('INSERT INTO settings (key,value) VALUES (?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(k, String(v)));
+  if (stmts.length) await env.DB.batch(stmts);
 }
+const intSetting = (v, def, min, max) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
 const parseEmails = (s) => [...new Set(String(s || '').split(/[\s,;]+/).map(normEmail).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)))];
-function mailProvider(env) {
-  if (env.MAIL_MODE === 'log') return 'log';                 // chạy thử trên máy: chỉ ghi log
-  if (env.RESEND_API_KEY && env.MAIL_FROM) return 'resend';
-  if (env.EMAIL && env.MAIL_FROM) return 'cloudflare';
-  return null;
+
+// Mật khẩu SMTP: mã hóa AES-GCM nếu có secret SETTINGS_KEY, nếu không lưu nguyên dạng (chỉ ghi, không bao giờ trả về giao diện)
+async function settingsKey(env) {
+  if (!env.SETTINGS_KEY) return null;
+  return crypto.subtle.importKey('raw', await crypto.subtle.digest('SHA-256', te.encode(env.SETTINGS_KEY)), 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
-async function sendMail(env, { to, cc = [], subject, html, text, replyTo }) {
-  const provider = mailProvider(env);
-  if (!provider) throw new Error('Chưa cấu hình dịch vụ gửi email (RESEND_API_KEY + MAIL_FROM).');
-  if (provider === 'log') { console.log('[MAIL]', JSON.stringify({ to, cc, subject, replyTo, chars: html.length })); return { id: 'log-' + Date.now() }; }
-  if (provider === 'resend') {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST', headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ from: env.MAIL_FROM, to, cc: cc.length ? cc : undefined, subject, html, text, reply_to: replyTo || undefined })
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.message || d.error || `Resend lỗi ${r.status}`);
-    return { id: d.id };
+async function sealSecret(env, plain) {
+  if (!plain) return '';
+  const key = await settingsKey(env);
+  if (!key) return 'plain:' + plain;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  return `enc:${b64(iv)}:${b64(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, te.encode(plain)))}`;
+}
+async function openSecret(env, stored) {
+  if (!stored) return '';
+  if (stored.startsWith('plain:')) return stored.slice(6);
+  if (stored.startsWith('enc:')) {
+    const key = await settingsKey(env);
+    if (!key) throw new Error('Mật khẩu SMTP được mã hóa bằng SETTINGS_KEY nhưng khóa này không còn. Vui lòng nhập lại mật khẩu SMTP.');
+    const [, iv, ct] = stored.split(':');
+    return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ub64(iv) }, key, ub64(ct)));
   }
-  // Cloudflare Email Service (binding send_email tên EMAIL)
-  const res = await env.EMAIL.send({ to: [...to, ...cc], from: env.MAIL_FROM, subject, html, text });
-  return { id: res && res.messageId };
+  return stored;
+}
+
+function mailReady(env, cfg) {
+  if (env.MAIL_MODE === 'log') return 'log';            // chạy thử trên máy: chỉ ghi log
+  return cfg.smtp_host && cfg.smtp_from_email ? 'smtp' : null;
+}
+async function sendMail(env, cfg, { to, cc = [], bcc = [], subject, html, text, replyTo }) {
+  const mode = mailReady(env, cfg);
+  if (!mode) throw new Error('Chưa cấu hình máy chủ gửi email (SMTP). Admin vào tab Cài đặt để thiết lập.');
+  if (mode === 'log') { console.log('[MAIL]', JSON.stringify({ to, cc, bcc, subject, replyTo, chars: (html || '').length })); return; }
+  const port = intSetting(cfg.smtp_port, 587, 1, 65535);
+  if (port === 25) throw new Error('Cloudflare chặn cổng 25. Hãy dùng cổng 587 (STARTTLS) hoặc 465 (SSL/TLS).');
+  const sec = cfg.smtp_security;
+  const opts = {
+    host: cfg.smtp_host.trim(), port,
+    secure: sec === 'ssl', startTls: sec === 'starttls',
+    authType: ['plain', 'login'], socketTimeoutMs: 12000, responseTimeoutMs: 12000
+  };
+  if (cfg.smtp_user) opts.credentials = { username: cfg.smtp_user.trim(), password: await openSecret(env, cfg.smtp_pass) };
+  let mailer;
+  try { mailer = await WorkerMailer.connect(opts); } catch (e) { throw new Error(smtpErrVi(e, opts)); }
+  try {
+    await mailer.send({
+      from: { name: cfg.smtp_from_name || cfg.company_name, email: cfg.smtp_from_email.trim() },
+      to: to.map((email) => ({ email })), cc: cc.length ? cc.map((email) => ({ email })) : undefined,
+      bcc: bcc.length ? bcc.map((email) => ({ email })) : undefined,
+      reply: replyTo ? { email: replyTo } : undefined, subject, text, html
+    });
+  } catch (e) { throw new Error(smtpErrVi(e, opts)); }
+  finally { try { await mailer.close(); } catch (e) { /* bỏ qua */ } }
+}
+// Dịch lỗi SMTP sang tiếng Việt kèm gợi ý xử lý
+function smtpErrVi(e, opts) {
+  const m = String((e && e.message) || e);
+  if (/^(Chưa|Cloudflare|Sai|Không|Hết)/.test(m)) return m;
+  if (/535|534|authentication|auth.*fail|username and password|credentials/i.test(m)) return 'Sai tài khoản hoặc mật khẩu SMTP. Với Gmail/Microsoft 365 phải dùng "Mật khẩu ứng dụng" (App Password), không dùng mật khẩu đăng nhập thường. (' + m.slice(0, 120) + ')';
+  if (/cannot connect|connect|ECONNREFUSED|proxy request failed|network/i.test(m)) return `Không kết nối được tới máy chủ ${opts.host}:${opts.port}. Kiểm tra lại địa chỉ máy chủ, cổng và kiểu bảo mật (465 = SSL/TLS, 587 = STARTTLS). (` + m.slice(0, 120) + ')';
+  if (/timeout|timed out/i.test(m)) return 'Máy chủ SMTP không phản hồi (hết thời gian chờ). Thường do sai mật khẩu, sai kiểu bảo mật so với cổng (465 ↔ SSL/TLS, 587 ↔ STARTTLS) hoặc máy chủ chặn đăng nhập. (' + m.slice(0, 120) + ')';
+  if (/550|553|sender|not allowed|relay/i.test(m)) return 'Máy chủ từ chối địa chỉ người gửi. "Email người gửi" phải trùng tài khoản SMTP hoặc là alias đã được cấp quyền. (' + m.slice(0, 120) + ')';
+  return 'Lỗi gửi email: ' + m.slice(0, 200);
 }
 const surveyCode = (r) => `KS-${new Date(r.created_at * 1000).getFullYear()}-${String(r.id).padStart(4, '0')}`;
 const fmtTs = (ts) => ts ? new Date(ts * 1000).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }) : '';
 
 async function emailSurvey(env, url, row, owner) {
+  const cfg = await getSettings(env);
   const tpl = getTemplate(row.template_id);
   const ans = JSON.parse(row.answers || '{}');
-  const to = parseEmails(await getSetting(env, 'survey_recipients', ''));
-  const ccSales = (await getSetting(env, 'survey_cc_sales', '1')) === '1';
-  const cc = ccSales && owner && /@/.test(owner.email) && !to.includes(owner.email) ? [owner.email] : [];
+  const to = parseEmails(cfg.survey_recipients);
+  const ownerEmail = owner && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(owner.email) ? owner.email : null;
+  const cc = parseEmails(cfg.survey_cc).filter((e) => !to.includes(e));
+  if (cfg.survey_cc_sales === '1' && ownerEmail && !to.includes(ownerEmail) && !cc.includes(ownerEmail)) cc.push(ownerEmail);
+  const bcc = parseEmails(cfg.survey_bcc).filter((e) => !to.includes(e) && !cc.includes(e));
+  const all = [...to, ...cc, ...bcc];
   let status, error = null;
   if (!to.length) { status = 'no_recipients'; error = 'Chưa cài đặt email nhận phiếu.'; }
   else {
-    const meta = { sales: owner ? owner.name : '', submitted: fmtTs(row.submitted_at), code: surveyCode(row) };
+    const internal = cfg.survey_include_internal === '1';
+    const meta = { sales: owner ? owner.name : '', submitted: fmtTs(row.submitted_at), code: surveyCode(row), company: cfg.company_name };
     const link = `${url.origin}/#khao-sat`;
     const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#0f172a;margin-bottom:14px;">
         Phiếu khảo sát mới từ <b>${String(meta.sales).replace(/</g, '&lt;')}</b>. Xem và xuất PDF tại <a href="${link}">${url.host}</a>.</div>`
-      + renderReport(tpl, ans, { internal: true, meta });
+      + renderReport(tpl, ans, { internal, meta });
+    const prefix = (cfg.survey_subject_prefix || '').trim();
     try {
-      await sendMail(env, { to, cc, subject: `[Khảo sát ${tpl.short}] ${surveyTitle(tpl, ans)} – ${meta.sales} (${meta.code})`,
-        html, text: renderText(tpl, ans, { internal: true }), replyTo: owner && /@/.test(owner.email) ? owner.email : undefined });
-      status = mailProvider(env) === 'log' ? 'sent_test' : 'sent';
+      await sendMail(env, cfg, { to, cc, bcc, subject: `${prefix ? prefix + ' ' : ''}${tpl.short}: ${surveyTitle(tpl, ans)} – ${meta.sales} (${meta.code})`,
+        html, text: renderText(tpl, ans, { internal }), replyTo: ownerEmail || undefined });
+      status = mailReady(env, cfg) === 'log' ? 'sent_test' : 'sent';
     } catch (e) { status = /Chưa cấu hình/.test(e.message) ? 'not_configured' : 'failed'; error = String(e.message || e).slice(0, 300); }
   }
   await env.DB.prepare('UPDATE survey_responses SET email_status=?1, email_error=?2, email_to=?3 WHERE id=?4')
-    .bind(status, error, [...to, ...cc].join(', '), row.id).run();
-  return { email_status: status, email_error: error, email_to: [...to, ...cc].join(', ') };
+    .bind(status, error, all.join(', '), row.id).run();
+  return { email_status: status, email_error: error, email_to: all.join(', ') };
 }
 async function canViewSurvey(env, me, row) {
   return row.user_id === me.id || me.app_role === 'admin' || (me.app_role === 'manager' && (await subtreeIds(env, me.id)).has(row.user_id));
@@ -272,6 +331,8 @@ async function api(req, env, url, me) {
   if (p === '/api/login' && method === 'POST') {
     const email = normEmail(body.email), pw = String(body.password || '');
     const u = await env.DB.prepare('SELECT * FROM users WHERE email=?1').bind(email).first();
+    const cfg = await getSettings(env);
+    const SESSION_DAYS = intSetting(cfg.session_days, 7, 1, 90), MAX_FAILS = intSetting(cfg.max_fails, 8, 3, 50), LOCK_MINUTES = intSetting(cfg.lock_minutes, 15, 1, 1440);
     const generic = bad('Email hoặc mật khẩu không đúng.', 401);
     if (!u || !u.active) { await hashPassword(pw); return generic; }           // giữ thời gian phản hồi tương đương
     if (u.locked_until > now()) return bad(`Tài khoản tạm khóa do nhập sai nhiều lần. Thử lại sau ${Math.ceil((u.locked_until - now()) / 60)} phút.`, 429);
@@ -300,7 +361,8 @@ async function api(req, env, url, me) {
   /* ----- Bản thân ----- */
   if (p === '/api/me' && method === 'GET') {
     const mgr = me.manager_id ? await env.DB.prepare('SELECT id,name,email FROM users WHERE id=?1').bind(me.manager_id).first() : null;
-    return json({ user: publicUser(me), manager: mgr, titles: TITLES });
+    const cfg = await getSettings(env);
+    return json({ user: publicUser(me), manager: mgr, titles: TITLES, company: cfg.company_name });
   }
   if (p === '/api/me/password' && method === 'POST') {
     const oldPw = String(body.old_password || ''), newPw = String(body.new_password || '');
@@ -485,18 +547,54 @@ async function api(req, env, url, me) {
   }
 
   /* ----- Phiếu khảo sát ----- */
-  if (p === '/api/settings/survey' && method === 'GET') {
-    const recipients = parseEmails(await getSetting(env, 'survey_recipients', ''));
-    return json({ recipients, cc_sales: (await getSetting(env, 'survey_cc_sales', '1')) === '1',
-      mail: { provider: mailProvider(env), from: env.MAIL_FROM || null } });
+  if (p === '/api/settings/survey' && method === 'GET') {          // thông tin cho mọi người dùng (không có bí mật)
+    const cfg = await getSettings(env);
+    return json({ recipients: parseEmails(cfg.survey_recipients), cc: parseEmails(cfg.survey_cc), cc_sales: cfg.survey_cc_sales === '1',
+      mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg), company: cfg.company_name });
   }
-  if (p === '/api/settings/survey' && method === 'PUT') {
-    if (me.app_role !== 'admin') return bad('Chỉ Admin được cài đặt email nhận phiếu.', 403);
-    const list = parseEmails(body.recipients);
-    if (list.length > 20) return bad('Tối đa 20 email nhận.');
-    await setSetting(env, 'survey_recipients', list.join(','));
-    await setSetting(env, 'survey_cc_sales', body.cc_sales ? '1' : '0');
-    return json({ ok: true, recipients: list });
+  if (p.startsWith('/api/admin/')) {
+    if (me.app_role !== 'admin') return bad('Chỉ Admin được truy cập cài đặt hệ thống.', 403);
+    if (p === '/api/admin/settings' && method === 'GET') {
+      const cfg = await getSettings(env);
+      const { smtp_pass, ...rest } = cfg;
+      return json({ settings: rest, smtp_pass_set: !!smtp_pass, smtp_pass_encrypted: smtp_pass.startsWith('enc:'), has_settings_key: !!env.SETTINGS_KEY, mail_mode: mailReady(env, cfg) });
+    }
+    if (p === '/api/admin/settings' && method === 'PUT') {
+      const b = body || {}, upd = {};
+      const str = (v, n) => String(v ?? '').trim().slice(0, n);
+      if ('company_name' in b) { const v = str(b.company_name, 120); if (!v) return bad('Chưa nhập tên công ty.'); upd.company_name = v; }
+      if ('smtp_host' in b) { const v = str(b.smtp_host, 200); if (v && !/^[a-z0-9.-]+$/i.test(v)) return bad('Máy chủ SMTP không hợp lệ.'); upd.smtp_host = v; }
+      if ('smtp_port' in b) { const v = parseInt(b.smtp_port, 10); if (!(v > 0 && v < 65536)) return bad('Cổng SMTP không hợp lệ.'); if (v === 25) return bad('Cloudflare chặn cổng 25. Dùng 587 hoặc 465.'); upd.smtp_port = String(v); }
+      if ('smtp_security' in b) { if (!['ssl', 'starttls', 'none'].includes(b.smtp_security)) return bad('Kiểu bảo mật không hợp lệ.'); upd.smtp_security = b.smtp_security; }
+      if ('smtp_user' in b) upd.smtp_user = str(b.smtp_user, 200);
+      if (b.smtp_pass_clear) upd.smtp_pass = '';
+      else if (b.smtp_pass) upd.smtp_pass = await sealSecret(env, String(b.smtp_pass).slice(0, 500));
+      if ('smtp_from_email' in b) { const v = normEmail(b.smtp_from_email); if (v && !parseEmails(v).length) return bad('Email người gửi không hợp lệ.'); upd.smtp_from_email = v; }
+      if ('smtp_from_name' in b) upd.smtp_from_name = str(b.smtp_from_name, 120);
+      for (const k of ['survey_recipients', 'survey_cc', 'survey_bcc']) if (k in b) {
+        const list = parseEmails(b[k]); if (list.length > 30) return bad('Mỗi danh sách tối đa 30 email.'); upd[k] = list.join(',');
+      }
+      if ('survey_cc_sales' in b) upd.survey_cc_sales = b.survey_cc_sales ? '1' : '0';
+      if ('survey_include_internal' in b) upd.survey_include_internal = b.survey_include_internal ? '1' : '0';
+      if ('survey_subject_prefix' in b) upd.survey_subject_prefix = str(b.survey_subject_prefix, 60);
+      if ('session_days' in b) upd.session_days = String(intSetting(b.session_days, 7, 1, 90));
+      if ('max_fails' in b) upd.max_fails = String(intSetting(b.max_fails, 8, 3, 50));
+      if ('lock_minutes' in b) upd.lock_minutes = String(intSetting(b.lock_minutes, 15, 1, 1440));
+      await setSettings(env, upd);
+      return json({ ok: true, saved: Object.keys(upd).length });
+    }
+    if (p === '/api/admin/test-email' && method === 'POST') {
+      const to = parseEmails(body.to);
+      if (!to.length) return bad('Nhập email nhận thư thử.');
+      const cfg = await getSettings(env);
+      try {
+        await sendMail(env, cfg, { to: [to[0]], subject: `${cfg.company_name} – Email thử từ hệ thống KPI`,
+          html: `<div style="font-family:Arial,sans-serif;font-size:14px">Xin chào,<br><br>Đây là email thử gửi từ <b>${url.host}</b> qua máy chủ SMTP <b>${cfg.smtp_host}:${cfg.smtp_port}</b>.<br>Nếu bạn nhận được email này, cấu hình gửi email đã hoạt động.<br><br>${cfg.company_name}</div>`,
+          text: `Email thử từ ${url.host} qua SMTP ${cfg.smtp_host}:${cfg.smtp_port}. Cấu hình gửi email đã hoạt động.` });
+        return json({ ok: true, mode: mailReady(env, cfg) });
+      } catch (e) { return bad(String(e.message || e).slice(0, 400)); }
+    }
+    return bad('Không tìm thấy.', 404);
   }
   if (p === '/api/surveys' && method === 'GET') {
     let where = 'r.user_id = ?1', binds = [me.id];
