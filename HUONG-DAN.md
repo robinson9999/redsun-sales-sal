@@ -47,8 +47,12 @@ Quyền xem: Sales xem phiếu của mình; Quản lý xem phiếu của mình v
 ### Admin: cài đặt email khảo sát
 Chỉ **Admin** thấy tab **⚙ Cài đặt** (Quản lý và Sales không thấy và không gọi được API cài đặt). Xem mục 7.
 
+### Các mẫu phiếu hiện có
+- 🌐 **Website Doanh nghiệp** (mục A–H, H là nội bộ).
+- 🛒 **Website Bán hàng** (mục A–J, J là nội bộ). Mục C có bảng kênh đang bán (Có/Không, số đơn/ngày, ghi chú); mục J có bảng tín hiệu chọn gói.
+
 ### Thêm mẫu phiếu mới
-Mẫu phiếu khai báo trong `public/survey-lib.js` (mảng `TEMPLATES`): mỗi phiếu gồm các mục, mỗi mục gồm bảng câu hỏi, nhóm chọn nhiều (`checks`, có thể giới hạn `max`), chọn một (`radio`). Thêm phiếu mới chỉ cần thêm một phần tử vào mảng; màn hình điền, email và PDF tự hiển thị theo.
+Mẫu phiếu khai báo trong `public/survey-lib.js` (mảng `TEMPLATES`): mỗi phiếu gồm các mục, mỗi mục gồm bảng câu hỏi, nhóm chọn nhiều (`checks`, có thể giới hạn `max`), chọn một (`radio`), bảng nhiều cột (`grid`, cột kiểu Có/Không, đánh dấu hoặc chữ) và ghi chú (`note`, thêm `report: true` để hiện cả trong email/PDF). Thêm phiếu mới chỉ cần thêm một phần tử vào mảng; màn hình điền, email và PDF tự hiển thị theo.
 
 ## 7. Admin: Cài đặt hệ thống (tab ⚙ Cài đặt)
 Gồm 4 phần, bấm **Lưu cài đặt** ở cuối trang để lưu.

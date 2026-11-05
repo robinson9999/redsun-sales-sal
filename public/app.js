@@ -672,7 +672,18 @@
       return `<input data-f="${r.id}" type="${r.kind === 'date' ? 'date' : 'text'}" value="${v}" class="${inputCls}" placeholder="${esc(r.placeholder || '')}">`;
     };
     const block = (b) => {
-      if (b.type === 'note') return `<p class="text-sm text-slate-500">${esc(b.text)}</p>`;
+      if (b.type === 'note') return b.report ? `<p class="text-sm text-slate-600 italic border-l-4 border-slate-200 pl-3 py-1">${esc(b.text)}</p>` : `<p class="text-sm text-slate-500">${esc(b.text)}</p>`;
+      if (b.type === 'grid') {
+        const cell = (r, c) => {
+          const k = `${b.id}:${r.v}:${c.k}`, v = A[k] || '';
+          if (c.kind === 'yesno') return `<div class="inline-flex rounded-lg border border-slate-300 overflow-hidden text-xs font-semibold" data-yn="${k}">${[['co', 'Có'], ['khong', 'Không']].map(([x, t]) => `<button type="button" data-ynv="${x}" class="px-3 py-1.5 ${v === x ? (x === 'co' ? 'bg-redsun-700 text-white' : 'bg-slate-600 text-white') : 'bg-white text-slate-600 hover:bg-slate-50'}">${t}</button>`).join('')}</div>`;
+          if (c.kind === 'check') return `<input type="checkbox" data-gchk="${k}" ${v === '1' ? 'checked' : ''} class="w-4 h-4 accent-red-700">`;
+          return `<input data-f="${k}" value="${esc(v)}" class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm">`;
+        };
+        return `<div class="border border-slate-200 rounded-xl overflow-x-auto"><table class="w-full text-sm min-w-[640px]"><thead class="bg-slate-50 text-xs text-slate-600"><tr>
+            <th class="text-left px-3 py-2 font-bold">${esc(b.head || b.label)}</th>${b.cols.map((c) => `<th class="text-left px-3 py-2 font-bold ${c.kind !== 'text' ? 'whitespace-nowrap' : ''} ${c.width === 'sm' ? 'w-40' : ''}">${esc(c.label)}</th>`).join('')}</tr></thead>
+          <tbody class="divide-y divide-slate-100">${b.rows.map((r) => `<tr><td class="px-3 py-2 font-semibold text-slate-700">${esc(r.label)}</td>${b.cols.map((c) => `<td class="px-3 py-2">${cell(r, c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      }
       if (b.type === 'table') return `<div class="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">${b.rows.map((r) => `
           <div class="grid grid-cols-1 sm:grid-cols-5 gap-2 p-3 ${r.required ? 'bg-redsun-50/40' : ''}"><label class="sm:col-span-2 text-sm font-semibold text-slate-700 pt-2">${esc(r.label)}${r.required ? ' <span class="text-redsun-600">*</span>' : ''}</label><div class="sm:col-span-3">${inp(r)}</div></div>`).join('')}</div>`;
       const multi = b.type === 'checks';
@@ -723,6 +734,13 @@
       b.options.forEach((o) => { if (!o.input) return; const f = el.querySelector(`[data-f="${id}:${o.v}"]`); const on = b.type === 'radio' ? SV.ans[id] === o.v : (SV.ans[id] || []).includes(o.v); f.disabled = !on; if (!on) { f.value = ''; delete SV.ans[`${id}:${o.v}`]; } else if (i.value === o.v && i.checked) f.focus(); });
       touch();
     }));
+    el.querySelectorAll('[data-yn]').forEach((g) => g.querySelectorAll('[data-ynv]').forEach((btn) => btn.onclick = () => {
+      const k = g.dataset.yn, x = btn.dataset.ynv;
+      if (SV.ans[k] === x) delete SV.ans[k]; else SV.ans[k] = x;
+      g.querySelectorAll('[data-ynv]').forEach((o) => { const on = SV.ans[k] === o.dataset.ynv; o.className = 'px-3 py-1.5 ' + (on ? (o.dataset.ynv === 'co' ? 'bg-redsun-700 text-white' : 'bg-slate-600 text-white') : 'bg-white text-slate-600 hover:bg-slate-50'); });
+      touch();
+    }));
+    el.querySelectorAll('[data-gchk]').forEach((i) => i.addEventListener('change', () => { if (i.checked) SV.ans[i.dataset.gchk] = '1'; else delete SV.ans[i.dataset.gchk]; touch(); }));
     el.querySelectorAll('[data-clear]').forEach((b) => b.onclick = () => { delete SV.ans[b.dataset.clear]; el.querySelectorAll(`[data-opt="${b.dataset.clear}"]`).forEach((r) => r.checked = false); touch(); });
     el.querySelectorAll('[data-jump]').forEach((b) => b.onclick = () => document.getElementById('sv-sec-' + b.dataset.jump).scrollIntoView({ behavior: 'smooth', block: 'start' }));
     document.getElementById('sv-back').onclick = async () => { if (SV.dirty && SV.status === 'draft') await saveSurvey(false, true); else if (SV.dirty && !confirm('Có thay đổi chưa lưu. Rời trang?')) return; goHome(); };
