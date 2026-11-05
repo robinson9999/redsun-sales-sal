@@ -144,6 +144,7 @@
   window.onTabShown = function (t) {
     if (!S.me || S.me.must_change) return;
     if (t === 'kpi') renderKpi();
+    if (t === 'survey') renderSurvey();
     if (t === 'assign') renderAssign();
     if (t === 'staff') renderStaff(true);
   };
@@ -562,5 +563,237 @@
       try { await navigator.clipboard.writeText(msg); e.target.textContent = '✔ Đã sao chép'; }
       catch { const r = document.createRange(); r.selectNodeContents(document.getElementById('tp-msg')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); e.target.textContent = 'Nhấn Ctrl+C để sao chép'; }
     };
+  }
+
+  /* =========================================================================
+     TRANG: PHIẾU KHẢO SÁT DỰ ÁN
+     ========================================================================= */
+  const SV = { lib: null, view: 'home', tpl: null, id: null, status: 'draft', ans: {}, dirty: false, saving: false, timer: null, q: '', settings: null, list: [] };
+  const STATUS = {
+    draft: ['Nháp', 'bg-slate-100 text-slate-600'],
+    sent: ['Đã gửi email', 'bg-emerald-100 text-emerald-800'],
+    sent_test: ['Đã gửi (thử nghiệm)', 'bg-emerald-100 text-emerald-800'],
+    failed: ['Gửi email lỗi', 'bg-redsun-100 text-redsun-800'],
+    not_configured: ['Hoàn tất – chưa cấu hình email', 'bg-amber-100 text-amber-800'],
+    no_recipients: ['Hoàn tất – chưa có email nhận', 'bg-amber-100 text-amber-800']
+  };
+  const svStatus = (r) => r.status === 'draft' ? STATUS.draft : (STATUS[r.email_status] || ['Hoàn tất', 'bg-blue-100 text-blue-800']);
+  const pill = ([t, c]) => `<span class="px-2 py-0.5 rounded-full text-[11px] font-bold ${c}">${t}</span>`;
+  async function svLib() { if (!SV.lib) SV.lib = await import('/survey-lib.js'); return SV.lib; }
+  const svEl = () => document.getElementById('tab-survey');
+
+  async function renderSurvey() {
+    await svLib();
+    if (SV.view === 'fill') return renderFill();
+    if (SV.view === 'result') return renderResult();
+    return renderSurveyHome();
+  }
+  function goHome() { SV.view = 'home'; SV.id = null; SV.tpl = null; SV.ans = {}; SV.dirty = false; clearTimeout(SV.timer); renderSurvey(); window.scrollTo(0, 0); }
+
+  /* ---------- Trang chính: chọn phiếu + danh sách đã lập ---------- */
+  async function renderSurveyHome() {
+    const el = svEl(); el.innerHTML = loading;
+    try {
+      const [d, st] = await Promise.all([api('/api/surveys'), api('/api/settings/survey')]);
+      SV.list = d.surveys; SV.settings = st;
+      const admin = S.me.app_role === 'admin', many = S.me.app_role !== 'staff';
+      const mailOk = !!st.mail.provider, rcp = st.recipients;
+      const tplCards = SV.lib.TEMPLATES.map((t) => card(`<div class="p-5 flex flex-col h-full">
+          <div class="text-3xl">${t.icon}</div><h3 class="font-extrabold text-slate-900 mt-2">${esc(t.name)}</h3>
+          <p class="text-sm text-slate-500 mt-1 flex-grow">${esc(t.description)}</p>
+          <button data-start="${t.id}" class="${BTN_P} mt-4 self-start">Bắt đầu điền phiếu →</button></div>`)).join('');
+      const mailInfo = !mailOk
+        ? `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Hệ thống <b>chưa cấu hình dịch vụ gửi email</b>. Phiếu vẫn được lưu và xuất PDF bình thường; email sẽ gửi được sau khi Admin cấu hình.</div>`
+        : !rcp.length ? `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Chưa cài đặt email nhận phiếu.${admin ? ' Nhập ở ô bên dưới.' : ' Vui lòng báo Admin.'}</div>`
+        : `<div class="text-sm text-slate-600">Phiếu hoàn tất sẽ được gửi tới: <b>${rcp.map(esc).join(', ')}</b>${st.cc_sales ? ' (kèm bản sao cho Sales lập phiếu)' : ''}.</div>`;
+      const settingsCard = admin ? card(`<div class="p-5 space-y-3"><h3 class="font-bold text-slate-900">Cài đặt email nhận phiếu <span class="text-xs font-normal text-slate-400">(Admin)</span></h3>
+          ${field('Email nhận kết quả (cách nhau bởi dấu phẩy)', `<textarea id="sv-rcp" rows="2" class="${inputCls}" placeholder="kinhdoanh@redsun.vn, giamdoc@redsun.vn">${esc(rcp.join(', '))}</textarea>`)}
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="sv-cc" ${st.cc_sales ? 'checked' : ''}> Gửi kèm bản sao cho Sales lập phiếu</label>
+          <p class="text-xs text-slate-500">Dịch vụ gửi: ${mailOk ? `<b>${st.mail.provider === 'resend' ? 'Resend' : st.mail.provider === 'cloudflare' ? 'Cloudflare Email' : 'Chế độ thử (chỉ ghi log)'}</b> • Người gửi: ${esc(st.mail.from || '')}` : '<b class="text-amber-700">chưa cấu hình</b> (xem hướng dẫn trong HUONG-DAN.md)'}</p>
+          ${errBox('sv-set-err')}<div class="flex items-center gap-3"><button id="sv-save-set" class="${BTN_S}">Lưu cài đặt</button><span id="sv-set-ok" class="text-sm text-emerald-700"></span></div></div>`) : '';
+      el.innerHTML = pageHead('Phiếu khảo sát dự án', 'Chọn phiếu, điền cùng khách hàng; kết quả được lưu, gửi email và xuất PDF.')
+        + `<div class="space-y-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${tplCards}</div>${mailInfo}${settingsCard}
+          ${card(`<div class="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div><h3 class="font-bold text-slate-900">${many ? 'Phiếu đã lập' : 'Phiếu của bạn'}</h3><p class="text-xs text-slate-500">${d.surveys.length} phiếu${many && !admin ? ' (của bạn và nhân viên dưới quyền)' : ''}</p></div>
+              <input id="sv-q" placeholder="Tìm khách hàng, mã phiếu…" value="${esc(SV.q)}" class="${inputCls} sm:w-72"></div>
+            <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-slate-50 text-[11px] uppercase text-slate-500"><tr>
+              <th class="py-2.5 px-3 text-left">Mã</th><th class="py-2.5 px-3 text-left">Khách hàng</th><th class="py-2.5 px-3 text-left">Phiếu</th>
+              ${many ? '<th class="py-2.5 px-3 text-left">Sales</th>' : ''}<th class="py-2.5 px-3 text-left">Trạng thái</th><th class="py-2.5 px-3 text-left">Cập nhật</th><th></th></tr></thead>
+              <tbody id="sv-rows" class="divide-y divide-slate-100"></tbody></table></div>`)}</div>`;
+      const drawRows = () => {
+        const q = SV.q.toLowerCase();
+        const rows = SV.list.filter((r) => !q || (r.title + ' ' + r.code + ' ' + (r.user_name || '') + ' ' + (r.answers.a_lien_he || '')).toLowerCase().includes(q));
+        document.getElementById('sv-rows').innerHTML = rows.length ? rows.map((r) => {
+          const t = SV.lib.getTemplate(r.template_id), mine = r.user_id === S.me.id;
+          return `<tr><td class="py-2.5 px-3 font-mono text-xs">${r.code}</td>
+            <td class="py-2.5 px-3"><b class="text-slate-900">${esc(r.title)}</b><br><span class="text-[11px] text-slate-500">${esc([r.answers.a_lien_he, r.answers.a_dien_thoai].filter(Boolean).join(' • '))}</span></td>
+            <td class="py-2.5 px-3 text-xs">${esc(t ? t.short : r.template_id)}</td>${many ? `<td class="py-2.5 px-3 text-xs">${esc(r.user_name)}</td>` : ''}
+            <td class="py-2.5 px-3">${pill(svStatus(r))}</td><td class="py-2.5 px-3 text-xs text-slate-500">${fmtDate(r.updated_at)}</td>
+            <td class="py-2.5 px-3 text-right whitespace-nowrap">${r.status === 'draft' && (mine || admin) ? `<button data-open="${r.id}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Tiếp tục điền</button>` : `<button data-view="${r.id}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Xem</button>`}
+              ${(r.status === 'draft' && mine) || admin ? `<button data-del="${r.id}" class="text-xs text-slate-500 hover:underline">Xóa</button>` : ''}</td></tr>`;
+        }).join('') : `<tr><td colspan="7" class="py-8 text-center text-slate-400">${SV.list.length ? 'Không có phiếu phù hợp.' : 'Chưa có phiếu nào. Chọn một mẫu phiếu ở trên để bắt đầu.'}</td></tr>`;
+        el.querySelectorAll('[data-open]').forEach((b) => b.onclick = () => openSurvey(+b.dataset.open, 'fill'));
+        el.querySelectorAll('[data-view]').forEach((b) => b.onclick = () => openSurvey(+b.dataset.view, 'result'));
+        el.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+          if (!confirm('Xóa phiếu này? Không thể khôi phục.')) return;
+          try { await api('/api/surveys/' + b.dataset.del, { method: 'DELETE', body: {} }); renderSurveyHome(); } catch (e) { alert(e.message); }
+        });
+      };
+      drawRows();
+      document.getElementById('sv-q').oninput = (e) => { SV.q = e.target.value; drawRows(); };
+      el.querySelectorAll('[data-start]').forEach((b) => b.onclick = () => startSurvey(b.dataset.start));
+      if (admin) document.getElementById('sv-save-set').onclick = async () => {
+        document.getElementById('sv-set-err').classList.add('hidden');
+        try { const r = await api('/api/settings/survey', { method: 'PUT', body: { recipients: document.getElementById('sv-rcp').value, cc_sales: document.getElementById('sv-cc').checked } });
+          document.getElementById('sv-rcp').value = r.recipients.join(', '); document.getElementById('sv-set-ok').textContent = `✔ Đã lưu ${r.recipients.length} email`; }
+        catch (e) { showErr('sv-set-err', e.message); }
+      };
+    } catch (e) { el.innerHTML = errorCard(e.message); }
+  }
+
+  function startSurvey(tplId) {
+    const tpl = SV.lib.getTemplate(tplId);
+    SV.tpl = tpl; SV.id = null; SV.status = 'draft'; SV.dirty = false;
+    SV.ans = {};
+    for (const s of tpl.sections) for (const b of s.blocks) if (b.type === 'table') for (const r of b.rows) {
+      if (r.auto === 'today') SV.ans[r.id] = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
+      if (r.auto === 'me') SV.ans[r.id] = S.me.name;
+    }
+    SV.view = 'fill'; renderFill(); window.scrollTo(0, 0);
+  }
+  async function openSurvey(id, view) {
+    const el = svEl(); el.innerHTML = loading;
+    try {
+      const d = await api('/api/surveys/' + id);
+      SV.cur = d.survey; SV.id = id; SV.tpl = SV.lib.getTemplate(d.survey.template_id); SV.ans = d.survey.answers; SV.status = d.survey.status; SV.dirty = false;
+      SV.view = view; renderSurvey(); window.scrollTo(0, 0);
+    } catch (e) { el.innerHTML = errorCard(e.message); }
+  }
+
+  /* ---------- Điền phiếu ---------- */
+  function renderFill() {
+    const el = svEl(), tpl = SV.tpl, A = SV.ans;
+    const inp = (r) => {
+      const v = esc(A[r.id] || '');
+      if (r.kind === 'textarea') return `<textarea data-f="${r.id}" rows="2" class="${inputCls} resize-y" placeholder="${esc(r.placeholder || '')}">${v}</textarea>`;
+      return `<input data-f="${r.id}" type="${r.kind === 'date' ? 'date' : 'text'}" value="${v}" class="${inputCls}" placeholder="${esc(r.placeholder || '')}">`;
+    };
+    const block = (b) => {
+      if (b.type === 'note') return `<p class="text-sm text-slate-500">${esc(b.text)}</p>`;
+      if (b.type === 'table') return `<div class="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">${b.rows.map((r) => `
+          <div class="grid grid-cols-1 sm:grid-cols-5 gap-2 p-3 ${r.required ? 'bg-redsun-50/40' : ''}"><label class="sm:col-span-2 text-sm font-semibold text-slate-700 pt-2">${esc(r.label)}${r.required ? ' <span class="text-redsun-600">*</span>' : ''}</label><div class="sm:col-span-3">${inp(r)}</div></div>`).join('')}</div>`;
+      const multi = b.type === 'checks';
+      const sel = multi ? (A[b.id] || []) : [A[b.id]];
+      return `<div class="p-4 border border-slate-200 rounded-xl"><div class="text-sm font-bold text-slate-800 mb-2">${esc(b.label)}${b.max ? ` <span class="font-normal text-xs text-slate-500">(đã chọn <span data-cnt="${b.id}">${sel.length}</span>/${b.max})</span>` : ''}
+          ${!multi ? ` <button data-clear="${b.id}" class="ml-2 text-xs font-normal text-slate-400 hover:text-redsun-700">bỏ chọn</button>` : ''}</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">${b.options.map((o) => {
+          const on = sel.includes(o.v), k = `${b.id}:${o.v}`;
+          return `<div class="py-1"><label class="flex items-start gap-2.5 text-sm cursor-pointer"><input type="${multi ? 'checkbox' : 'radio'}" name="${b.id}" data-opt="${b.id}" value="${o.v}" ${on ? 'checked' : ''} class="mt-0.5 w-4 h-4 accent-red-700 shrink-0"><span>${esc(o.label)}</span></label>
+            ${o.input ? `<input data-f="${k}" value="${esc(A[k] || '')}" placeholder="${esc(o.input)}" ${on ? '' : 'disabled'} class="mt-1 ml-6 w-[calc(100%-1.5rem)] px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm disabled:bg-slate-50 disabled:text-slate-400">` : ''}</div>`;
+        }).join('')}</div></div>`;
+    };
+    const editingSubmitted = SV.status === 'submitted';
+    el.innerHTML = `<div class="sticky top-[7.5rem] z-40 -mx-4 sm:mx-0 mb-6 bg-white/95 backdrop-blur border border-slate-200 sm:rounded-2xl shadow-sm px-4 py-3 flex flex-wrap items-center gap-3">
+        <button id="sv-back" class="${BTN_S}">← Danh sách</button>
+        <div class="min-w-0 flex-grow"><div class="text-[11px] text-slate-500 truncate">${esc(tpl.name)}${SV.cur && SV.id ? ' • ' + esc(SV.cur.code || '') : ''}</div>
+          <div class="flex items-center gap-2"><div class="h-2 w-32 sm:w-48 bg-slate-200 rounded-full overflow-hidden"><div id="sv-prog" class="h-full bg-redsun-600 rounded-full transition-all"></div></div><span id="sv-prog-t" class="text-xs font-bold text-slate-700"></span><span id="sv-saved" class="text-[11px] text-slate-400"></span></div></div>
+        <button id="sv-draft" class="${BTN_S}">${editingSubmitted ? 'Lưu thay đổi' : 'Lưu nháp'}</button>
+        <button id="sv-submit" class="${BTN_P}">${editingSubmitted ? 'Lưu & gửi lại email' : 'Hoàn tất & gửi'}</button></div>
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <aside class="hidden lg:block lg:col-span-3 lg:sticky lg:top-56">${card(`<div class="p-3"><p class="text-[11px] font-bold uppercase text-slate-400 px-2 mb-1">Các mục</p>
+          ${tpl.sections.map((s) => `<button data-jump="${s.id}" class="w-full text-left px-2 py-1.5 rounded-lg text-sm hover:bg-redsun-50 ${s.internal ? 'text-amber-800' : 'text-slate-700'}"><b class="text-redsun-700 mr-1">${s.id}.</b>${esc(s.title)}</button>`).join('')}</div>`)}</aside>
+        <div class="lg:col-span-9 space-y-6">
+          ${card(`<details class="p-5" ${SV.id ? '' : 'open'}><summary class="font-bold text-slate-900 cursor-pointer">Cách dùng phiếu</summary>
+            <p class="text-sm text-slate-600 mt-2">${esc(tpl.description)}</p><ul class="list-disc pl-5 mt-2 space-y-1 text-sm text-slate-600">${tpl.guide.map((g) => `<li>${esc(g)}</li>`).join('')}</ul></details>`)}
+          ${tpl.sections.map((s) => card(`<div class="p-5 space-y-4 ${s.internal ? 'bg-amber-50/40' : ''}" id="sv-sec-${s.id}">
+            <h3 class="text-lg font-extrabold ${s.internal ? 'text-amber-900' : 'text-slate-900'} flex items-center gap-2"><span class="inline-flex w-8 h-8 rounded-lg ${s.internal ? 'bg-amber-600' : 'bg-redsun-700'} text-white text-sm items-center justify-center">${s.id}</span>${esc(s.title)}</h3>
+            ${s.internal ? '<p class="text-xs text-amber-800 -mt-2">Sales tự điền sau buổi gặp. Mục này không có trong bản PDF gửi khách.</p>' : ''}
+            ${s.blocks.map(block).join('')}</div>`, s.internal ? 'border-amber-300' : '')).join('')}
+          ${errBox('sv-err')}
+          <div class="flex justify-end gap-2 pb-10"><button id="sv-draft2" class="${BTN_S}">${editingSubmitted ? 'Lưu thay đổi' : 'Lưu nháp'}</button><button id="sv-submit2" class="${BTN_P}">${editingSubmitted ? 'Lưu & gửi lại email' : 'Hoàn tất & gửi'}</button></div>
+        </div></div>`;
+
+    const upd = () => { const p = SV.lib.progress(tpl, SV.ans); document.getElementById('sv-prog').style.width = p.pct + '%'; document.getElementById('sv-prog-t').textContent = `${p.pct}%`; };
+    const touch = () => { SV.dirty = true; upd(); document.getElementById('sv-saved').textContent = '• chưa lưu';
+      clearTimeout(SV.timer); if (SV.status === 'draft') SV.timer = setTimeout(() => saveSurvey(false, true), 4000); };
+    el.querySelectorAll('[data-f]').forEach((i) => i.addEventListener('input', () => { const v = i.value; if (v === '') delete SV.ans[i.dataset.f]; else SV.ans[i.dataset.f] = v; touch(); }));
+    el.querySelectorAll('[data-opt]').forEach((i) => i.addEventListener('change', () => {
+      const id = i.dataset.opt, b = tpl.sections.flatMap((s) => s.blocks).find((x) => x.id === id);
+      if (b.type === 'radio') SV.ans[id] = i.value;
+      else {
+        let arr = (SV.ans[id] || []).filter((v) => v !== i.value);
+        if (i.checked) arr.push(i.value);
+        if (b.max && arr.length > b.max) { i.checked = false; arr = arr.filter((v) => v !== i.value); alert(`Chỉ chọn tối đa ${b.max} mục.`); }
+        if (arr.length) SV.ans[id] = arr; else delete SV.ans[id];
+        const c = el.querySelector(`[data-cnt="${id}"]`); if (c) c.textContent = arr.length;
+      }
+      b.options.forEach((o) => { if (!o.input) return; const f = el.querySelector(`[data-f="${id}:${o.v}"]`); const on = b.type === 'radio' ? SV.ans[id] === o.v : (SV.ans[id] || []).includes(o.v); f.disabled = !on; if (!on) { f.value = ''; delete SV.ans[`${id}:${o.v}`]; } else if (i.value === o.v && i.checked) f.focus(); });
+      touch();
+    }));
+    el.querySelectorAll('[data-clear]').forEach((b) => b.onclick = () => { delete SV.ans[b.dataset.clear]; el.querySelectorAll(`[data-opt="${b.dataset.clear}"]`).forEach((r) => r.checked = false); touch(); });
+    el.querySelectorAll('[data-jump]').forEach((b) => b.onclick = () => document.getElementById('sv-sec-' + b.dataset.jump).scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    document.getElementById('sv-back').onclick = async () => { if (SV.dirty && SV.status === 'draft') await saveSurvey(false, true); else if (SV.dirty && !confirm('Có thay đổi chưa lưu. Rời trang?')) return; goHome(); };
+    ['sv-draft', 'sv-draft2'].forEach((x) => document.getElementById(x).onclick = () => saveSurvey(false));
+    ['sv-submit', 'sv-submit2'].forEach((x) => document.getElementById(x).onclick = () => saveSurvey(true));
+    upd();
+  }
+
+  async function saveSurvey(submit, auto) {
+    if (SV.saving) return; SV.saving = true; clearTimeout(SV.timer);
+    const errEl = document.getElementById('sv-err'); if (errEl) errEl.classList.add('hidden');
+    try {
+      if (submit) {
+        const errs = SV.lib.validateAnswers(SV.tpl, SV.ans);
+        if (errs.length) { showErr('sv-err', errs.join(' ')); document.getElementById('sv-sec-A').scrollIntoView({ behavior: 'smooth' }); return; }
+      }
+      if (auto && !SV.id && !Object.keys(SV.ans).some((k) => !['a_ngay', 'a_sales'].includes(k))) return;   // chưa có gì để lưu
+      const body = { answers: SV.ans, submit };
+      const d = SV.id ? await api('/api/surveys/' + SV.id, { method: 'PUT', body }) : await api('/api/surveys', { method: 'POST', body: { ...body, template_id: SV.tpl.id } });
+      SV.id = d.id; SV.dirty = false;
+      const sv = document.getElementById('sv-saved'); if (sv) sv.textContent = `• đã lưu ${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
+      if (submit) { SV.lastMail = d; await openSurvey(SV.id, 'result'); }
+    } catch (e) { if (errEl) showErr('sv-err', e.message); else alert(e.message); }
+    finally { SV.saving = false; }
+  }
+
+  /* ---------- Kết quả ---------- */
+  function renderResult() {
+    const el = svEl(), r = SV.cur, tpl = SV.tpl;
+    const canEdit = r.user_id === S.me.id || S.me.app_role === 'admin';
+    const meta = { sales: r.user_name, submitted: r.submitted_at ? new Date(r.submitted_at * 1000).toLocaleString('vi-VN', { hour12: false }) : '', code: r.code };
+    const [st] = svStatus(r);
+    const mailBox = r.email_status === 'sent' || r.email_status === 'sent_test'
+      ? `<div class="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">✔ ${r.email_status === 'sent_test' ? 'Chế độ thử: email được ghi log, chưa gửi thật' : 'Đã gửi email'} tới <b>${esc(r.email_to || '')}</b>.</div>`
+      : `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">${esc(st)}${r.email_error ? ': ' + esc(r.email_error) : ''}. Phiếu đã được lưu; bạn vẫn xuất PDF được. <button id="sv-resend2" class="ml-2 font-bold underline">Thử gửi lại</button></div>`;
+    el.innerHTML = `<div class="flex flex-wrap items-center gap-2 mb-4">
+        <button id="sv-back" class="${BTN_S}">← Danh sách</button><div class="flex-grow"></div>
+        ${canEdit ? `<button id="sv-edit" class="${BTN_S}">Sửa phiếu</button>` : ''}
+        <button id="sv-resend" class="${BTN_S}">Gửi lại email</button>
+        <button id="sv-pdf-in" class="${BTN_S}">⬇ PDF nội bộ (đủ mục H)</button>
+        <button id="sv-pdf-out" class="${BTN_P}">⬇ PDF gửi khách</button></div>
+      <div class="space-y-4">${mailBox}${card(`<div class="p-5 sm:p-8">${SV.lib.renderReport(tpl, SV.ans, { internal: true, meta })}</div>`)}</div>`;
+    document.getElementById('sv-back').onclick = goHome;
+    if (canEdit) document.getElementById('sv-edit').onclick = () => { SV.view = 'fill'; renderFill(); window.scrollTo(0, 0); };
+    const resend = async (btn) => { btn.disabled = true; btn.textContent = 'Đang gửi…';
+      try { await api(`/api/surveys/${SV.id}/send`, { method: 'POST', body: {} }); await openSurvey(SV.id, 'result'); } catch (e) { alert(e.message); btn.disabled = false; } };
+    document.getElementById('sv-resend').onclick = (e) => resend(e.target);
+    const r2 = document.getElementById('sv-resend2'); if (r2) r2.onclick = (e) => resend(e.target);
+    document.getElementById('sv-pdf-in').onclick = (e) => exportPdf(true, meta, e.target);
+    document.getElementById('sv-pdf-out').onclick = (e) => exportPdf(false, meta, e.target);
+  }
+
+  const loadScript = (src) => new Promise((ok, no) => { if (document.querySelector(`script[src="${src}"]`)) return ok(); const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('Không tải được ' + src)); document.head.appendChild(s); });
+  const slug = (t) => String(t).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50);
+  async function exportPdf(internal, meta, btn) {
+    const label = btn.textContent; btn.disabled = true; btn.textContent = 'Đang tạo PDF…';
+    try {
+      await loadScript('/vendor/pdfmake.min.js'); await loadScript('/vendor/vfs_fonts.js');
+      const bg = getComputedStyle(document.querySelector('.rs-logo')).backgroundImage;
+      const logo = (bg.match(/url\("?(data:image\/png;base64,[^")]+)"?\)/) || [])[1];
+      const doc = SV.lib.buildPdfDoc(SV.tpl, SV.ans, { internal, meta: { ...meta, company: CONFIG.company }, logo });
+      const name = `Khao-sat-${slug(SV.lib.surveyTitle(SV.tpl, SV.ans))}-${meta.code}${internal ? '-noi-bo' : ''}.pdf`;
+      window.pdfMake.createPdf(doc).download(name);
+    } catch (e) { alert('Không tạo được PDF: ' + e.message); }
+    finally { setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 800); }
   }
 })();

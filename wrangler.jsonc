@@ -14,5 +14,7 @@
   "d1_databases": [
     { "binding": "DB", "database_name": "redsun-quy-che-db" }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Giữ các biến cấu hình đặt trên Dashboard (RESEND_API_KEY, MAIL_FROM) khi deploy từ GitHub
+  "keep_vars": true
 }

@@ -7,6 +7,7 @@
 - **KPI của bạn**: chỉ tiêu được giao theo từng tháng.
 - **Giao KPI** (Admin/Quản lý): chọn nhân viên, chọn tháng/năm, giao target; target đội tự cộng từ cấp dưới.
 - **Nhân viên**: Admin xem & quản lý toàn bộ; Quản lý chỉ xem cấp dưới của mình (mọi tầng).
+- **Phiếu khảo sát dự án**: Sales chọn phiếu, điền cùng khách, hoàn tất → lưu, gửi email tới danh sách cài sẵn, xuất PDF (bản gửi khách / bản nội bộ).
 
 > Repo private. Không commit mật khẩu, danh sách tài khoản thật (đã chặn trong `.gitignore`).
 
@@ -17,6 +18,8 @@
 | `worker/index.js` | Máy chủ: đăng nhập, phiên, phân quyền, API nhân viên & KPI, tạo bảng D1 tự động. |
 | `public/index.html` | Giao diện chính: quy chế + bảng tính (tham số trong `CONFIG`, `ROLES`). |
 | `public/app.js` | Giao diện: KPI của bạn, Giao KPI, Nhân viên, đổi mật khẩu. |
+| `public/survey-lib.js` | Mẫu phiếu khảo sát + hiển thị kết quả, email, PDF (dùng chung trình duyệt & máy chủ). |
+| `public/vendor/` | pdfmake (tạo PDF trên trình duyệt). |
 | `public/login.html` | Trang đăng nhập (trang duy nhất xem được khi chưa đăng nhập). |
 | `public/app.css` | CSS biên dịch từ Tailwind (`npm run css` sau khi đổi giao diện). |
 | `wrangler.jsonc` | Cấu hình Worker + D1 (`redsun-quy-che-db`, Cloudflare tự tạo ở lần deploy đầu). |
@@ -41,5 +44,6 @@ Cloudflare Workers Builds tự deploy mỗi khi đẩy lên nhánh `main`. Lần
 ```bash
 npm install
 npx wrangler dev        # http://localhost:8787 (D1 cục bộ trong .wrangler/)
+# Tạo file .dev.vars với dòng MAIL_MODE=log để thử gửi email (chỉ ghi log)
 npm run css             # biên dịch lại CSS khi sửa giao diện
 ```

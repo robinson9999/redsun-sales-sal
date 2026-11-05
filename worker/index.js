@@ -5,6 +5,8 @@
    - Mọi trang & file tĩnh đều yêu cầu đăng nhập, trừ trang /login
    ============================================================================= */
 
+import { getTemplate, sanitizeAnswers, validateAnswers, renderReport, renderText, surveyTitle } from '../public/survey-lib.js';
+
 const PBKDF2_ITER = 50000;               // Workers giới hạn tối đa 100.000; 50.000 để vừa CPU gói miễn phí
 const SESSION_DAYS = 7;
 const MAX_FAILS = 8, LOCK_MINUTES = 15;
@@ -102,6 +104,22 @@ async function ensureSchema(env) {
       assigned_by INTEGER,
       assigned_at INTEGER NOT NULL,
       UNIQUE(user_id, year, month))`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS survey_responses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_id TEXT NOT NULL,
+      template_version INTEGER NOT NULL DEFAULT 1,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      title TEXT NOT NULL DEFAULT '',
+      answers TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'draft',
+      email_status TEXT,
+      email_error TEXT,
+      email_to TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      submitted_at INTEGER)`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_survey_user ON survey_responses(user_id, updated_at)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_users_manager ON users(manager_id)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_kpis_period ON kpis(year, month)`)
   ]);
@@ -172,6 +190,69 @@ async function suggestTeamTarget(env, managerId, y, m, factor = 1) {
   let sum = 0;
   for (const c of kids.results) sum += await unitTarget(env, c, y, m);
   return Math.round(sum * factor);
+}
+
+/* ---------------------------- Cài đặt & Email ---------------------------- */
+async function getSetting(env, key, def = null) {
+  const r = await env.DB.prepare('SELECT value FROM settings WHERE key=?1').bind(key).first();
+  return r ? r.value : def;
+}
+async function setSetting(env, key, value) {
+  await env.DB.prepare('INSERT INTO settings (key,value) VALUES (?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(key, value).run();
+}
+const parseEmails = (s) => [...new Set(String(s || '').split(/[\s,;]+/).map(normEmail).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)))];
+function mailProvider(env) {
+  if (env.MAIL_MODE === 'log') return 'log';                 // chạy thử trên máy: chỉ ghi log
+  if (env.RESEND_API_KEY && env.MAIL_FROM) return 'resend';
+  if (env.EMAIL && env.MAIL_FROM) return 'cloudflare';
+  return null;
+}
+async function sendMail(env, { to, cc = [], subject, html, text, replyTo }) {
+  const provider = mailProvider(env);
+  if (!provider) throw new Error('Chưa cấu hình dịch vụ gửi email (RESEND_API_KEY + MAIL_FROM).');
+  if (provider === 'log') { console.log('[MAIL]', JSON.stringify({ to, cc, subject, replyTo, chars: html.length })); return { id: 'log-' + Date.now() }; }
+  if (provider === 'resend') {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST', headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ from: env.MAIL_FROM, to, cc: cc.length ? cc : undefined, subject, html, text, reply_to: replyTo || undefined })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.message || d.error || `Resend lỗi ${r.status}`);
+    return { id: d.id };
+  }
+  // Cloudflare Email Service (binding send_email tên EMAIL)
+  const res = await env.EMAIL.send({ to: [...to, ...cc], from: env.MAIL_FROM, subject, html, text });
+  return { id: res && res.messageId };
+}
+const surveyCode = (r) => `KS-${new Date(r.created_at * 1000).getFullYear()}-${String(r.id).padStart(4, '0')}`;
+const fmtTs = (ts) => ts ? new Date(ts * 1000).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }) : '';
+
+async function emailSurvey(env, url, row, owner) {
+  const tpl = getTemplate(row.template_id);
+  const ans = JSON.parse(row.answers || '{}');
+  const to = parseEmails(await getSetting(env, 'survey_recipients', ''));
+  const ccSales = (await getSetting(env, 'survey_cc_sales', '1')) === '1';
+  const cc = ccSales && owner && /@/.test(owner.email) && !to.includes(owner.email) ? [owner.email] : [];
+  let status, error = null;
+  if (!to.length) { status = 'no_recipients'; error = 'Chưa cài đặt email nhận phiếu.'; }
+  else {
+    const meta = { sales: owner ? owner.name : '', submitted: fmtTs(row.submitted_at), code: surveyCode(row) };
+    const link = `${url.origin}/#khao-sat`;
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#0f172a;margin-bottom:14px;">
+        Phiếu khảo sát mới từ <b>${String(meta.sales).replace(/</g, '&lt;')}</b>. Xem và xuất PDF tại <a href="${link}">${url.host}</a>.</div>`
+      + renderReport(tpl, ans, { internal: true, meta });
+    try {
+      await sendMail(env, { to, cc, subject: `[Khảo sát ${tpl.short}] ${surveyTitle(tpl, ans)} – ${meta.sales} (${meta.code})`,
+        html, text: renderText(tpl, ans, { internal: true }), replyTo: owner && /@/.test(owner.email) ? owner.email : undefined });
+      status = mailProvider(env) === 'log' ? 'sent_test' : 'sent';
+    } catch (e) { status = /Chưa cấu hình/.test(e.message) ? 'not_configured' : 'failed'; error = String(e.message || e).slice(0, 300); }
+  }
+  await env.DB.prepare('UPDATE survey_responses SET email_status=?1, email_error=?2, email_to=?3 WHERE id=?4')
+    .bind(status, error, [...to, ...cc].join(', '), row.id).run();
+  return { email_status: status, email_error: error, email_to: [...to, ...cc].join(', ') };
+}
+async function canViewSurvey(env, me, row) {
+  return row.user_id === me.id || me.app_role === 'admin' || (me.app_role === 'manager' && (await subtreeIds(env, me.id)).has(row.user_id));
 }
 
 /* ---------------------------- API ---------------------------- */
@@ -401,6 +482,77 @@ async function api(req, env, url, me) {
     if (me.app_role !== 'admin' && (k.user_id === me.id || !(await canManage(env, me, k.user_id)))) return bad('Không có quyền xóa KPI này.', 403);
     await env.DB.prepare('DELETE FROM kpis WHERE id=?1').bind(k.id).run();
     return json({ ok: true });
+  }
+
+  /* ----- Phiếu khảo sát ----- */
+  if (p === '/api/settings/survey' && method === 'GET') {
+    const recipients = parseEmails(await getSetting(env, 'survey_recipients', ''));
+    return json({ recipients, cc_sales: (await getSetting(env, 'survey_cc_sales', '1')) === '1',
+      mail: { provider: mailProvider(env), from: env.MAIL_FROM || null } });
+  }
+  if (p === '/api/settings/survey' && method === 'PUT') {
+    if (me.app_role !== 'admin') return bad('Chỉ Admin được cài đặt email nhận phiếu.', 403);
+    const list = parseEmails(body.recipients);
+    if (list.length > 20) return bad('Tối đa 20 email nhận.');
+    await setSetting(env, 'survey_recipients', list.join(','));
+    await setSetting(env, 'survey_cc_sales', body.cc_sales ? '1' : '0');
+    return json({ ok: true, recipients: list });
+  }
+  if (p === '/api/surveys' && method === 'GET') {
+    let where = 'r.user_id = ?1', binds = [me.id];
+    if (me.app_role === 'admin') { where = '1'; binds = []; }
+    else if (me.app_role === 'manager') {
+      const ids = [me.id, ...(await subtreeIds(env, me.id))];
+      where = `r.user_id IN (${ids.map(() => '?').join(',')})`; binds = ids;
+    }
+    const r = await env.DB.prepare(`SELECT r.id, r.template_id, r.title, r.status, r.email_status, r.answers, r.created_at, r.updated_at, r.submitted_at,
+        r.user_id, u.name AS user_name FROM survey_responses r JOIN users u ON u.id = r.user_id
+        WHERE ${where} ORDER BY r.updated_at DESC LIMIT 300`).bind(...binds).all();
+    return json({ surveys: r.results.map((x) => ({ ...x, code: surveyCode(x), answers: JSON.parse(x.answers || '{}') })) });
+  }
+  m = p.match(/^\/api\/surveys(?:\/(\d+))?(\/send)?$/);
+  if (m) {
+    const id = m[1] ? +m[1] : null, isSend = !!m[2];
+    if (!id && method === 'POST') {
+      const tpl = getTemplate(body.template_id);
+      if (!tpl) return bad('Không tìm thấy mẫu phiếu.');
+      const ans = sanitizeAnswers(tpl, body.answers || {});
+      if (body.submit) { const errs = validateAnswers(tpl, ans); if (errs.length) return bad(errs.join(' ')); }
+      const t = now();
+      const r = await env.DB.prepare(`INSERT INTO survey_responses (template_id,template_version,user_id,title,answers,status,created_at,updated_at,submitted_at)
+          VALUES (?1,?2,?3,?4,?5,?6,?7,?7,?8)`).bind(tpl.id, tpl.version, me.id, surveyTitle(tpl, ans).slice(0, 200), JSON.stringify(ans),
+          body.submit ? 'submitted' : 'draft', t, body.submit ? t : null).run();
+      const row = await env.DB.prepare('SELECT * FROM survey_responses WHERE id=?1').bind(r.meta.last_row_id).first();
+      const mail = body.submit ? await emailSurvey(env, url, row, me) : {};
+      return json({ ok: true, id: row.id, code: surveyCode(row), ...mail });
+    }
+    if (!id) return bad('Không tìm thấy.', 404);
+    const row = await env.DB.prepare(`SELECT r.*, u.name AS user_name, u.email AS user_email FROM survey_responses r JOIN users u ON u.id=r.user_id WHERE r.id=?1`).bind(id).first();
+    if (!row || !(await canViewSurvey(env, me, row))) return bad('Không tìm thấy phiếu hoặc bạn không có quyền xem.', 404);
+    const owner = { id: row.user_id, name: row.user_name, email: row.user_email };
+    if (method === 'GET' && !isSend) return json({ survey: { ...row, code: surveyCode(row), answers: JSON.parse(row.answers || '{}') } });
+    if (method === 'POST' && isSend) {
+      if (row.status !== 'submitted') return bad('Phiếu chưa hoàn tất.');
+      return json({ ok: true, ...(await emailSurvey(env, url, row, owner)) });
+    }
+    if (method === 'PUT') {
+      if (row.user_id !== me.id && me.app_role !== 'admin') return bad('Chỉ người lập phiếu được sửa.', 403);
+      const tpl = getTemplate(row.template_id);
+      const ans = sanitizeAnswers(tpl, body.answers || {});
+      const submit = !!body.submit || row.status === 'submitted';
+      if (submit) { const errs = validateAnswers(tpl, ans); if (errs.length) return bad(errs.join(' ')); }
+      const t = now();
+      await env.DB.prepare(`UPDATE survey_responses SET answers=?1, title=?2, status=?3, updated_at=?4, submitted_at=COALESCE(?5, submitted_at) WHERE id=?6`)
+        .bind(JSON.stringify(ans), surveyTitle(tpl, ans).slice(0, 200), submit ? 'submitted' : 'draft', t, body.submit ? t : null, id).run();
+      const fresh = await env.DB.prepare('SELECT * FROM survey_responses WHERE id=?1').bind(id).first();
+      const mail = body.submit ? await emailSurvey(env, url, fresh, owner) : {};
+      return json({ ok: true, id, code: surveyCode(fresh), ...mail });
+    }
+    if (method === 'DELETE') {
+      if (!(me.app_role === 'admin' || (row.user_id === me.id && row.status === 'draft'))) return bad('Chỉ xóa được phiếu nháp của mình (Admin xóa được mọi phiếu).', 403);
+      await env.DB.prepare('DELETE FROM survey_responses WHERE id=?1').bind(id).run();
+      return json({ ok: true });
+    }
   }
 
   return bad('Không tìm thấy.', 404);
