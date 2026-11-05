@@ -552,7 +552,7 @@ export function renderText(tpl, ans, opts = {}) {
         lines.push(`- ${b.label}:`);
         const filled = b.rows.filter((r) => gridRowFilled(b, r, ans));
         if (!filled.length) lines.push('    —');
-        for (const r of filled) lines.push(`    • ${r.label}: ${b.cols.map((c) => { const t = gridCell(c, ans[gKey(b, r, c)]); return t ? `${c.label} ${t}` : ''; }).filter(Boolean).join(' · ')}`);
+        for (const r of filled) lines.push(`    • ${r.label}: ${b.cols.map((c) => { const t = gridCell(c, ans[gKey(b, r, c)]); return !t ? '' : c.kind === 'text' ? `${c.label}: ${t}` : c.kind === 'check' ? c.label : t; }).filter(Boolean).join(' · ')}`);
       }
       if (b.type === 'checks' || b.type === 'radio') {
         const sel = b.type === 'radio' ? (isEmpty(ans[b.id]) ? [] : [ans[b.id]]) : (ans[b.id] || []);
