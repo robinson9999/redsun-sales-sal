@@ -50,6 +50,7 @@ Chỉ **Admin** thấy tab **⚙ Cài đặt** (Quản lý và Sales không th�
 ### Các mẫu phiếu hiện có
 - 🌐 **Website Doanh nghiệp** (mục A–H, H là nội bộ).
 - 🛒 **Website Bán hàng** (mục A–J, J là nội bộ). Mục C có bảng kênh đang bán (Có/Không, số đơn/ngày, ghi chú); mục J có bảng tín hiệu chọn gói.
+- 🤖 **Redsun AI CRM** (mục A–J, J là nội bộ). Hỏi điểm nghẽn, quy trình bán, kênh liên lạc, nhu cầu AI và module BOS; mục J có bảng tín hiệu chọn gói Starter / Business / Enterprise. CRM chỉ kết nối Zalo OA, không kết nối Zalo cá nhân.
 
 ### Thêm mẫu phiếu mới
 Mẫu phiếu khai báo trong `public/survey-lib.js` (mảng `TEMPLATES`): mỗi phiếu gồm các mục, mỗi mục gồm bảng câu hỏi, nhóm chọn nhiều (`checks`, có thể giới hạn `max`), chọn một (`radio`), bảng nhiều cột (`grid`, cột kiểu Có/Không, đánh dấu hoặc chữ) và ghi chú (`note`, thêm `report: true` để hiện cả trong email/PDF). Thêm phiếu mới chỉ cần thêm một phần tử vào mảng; màn hình điền, email và PDF tự hiển thị theo.

@@ -403,6 +403,244 @@ export const TEMPLATES = [
         ] }
       ] }
     ]
+  },
+  {
+    id: 'ai-crm',
+    version: 1,
+    name: 'Phiếu khảo sát nhu cầu Redsun AI CRM',
+    short: 'Redsun AI CRM',
+    icon: '🤖',
+    description: 'Dùng trong buổi gặp đầu (45–60 phút) hoặc gửi khách tự điền trước. Điền đủ mục A–I là đủ dữ liệu để chọn gói, ước số tài khoản và lập báo giá riêng trong 24 giờ làm việc.',
+    titleField: 'a_ten_dn',
+    guide: [
+      'Hỏi B → C → D trước: khách muốn CRM giải quyết việc gì, đang quản lý khách ra sao, đội bán hàng làm việc thế nào. Ba mục này quyết định gói nhiều hơn danh sách tính năng.',
+      'Ghi đúng con số khách nói: số người dùng, số khách hàng đang có, số khách mới mỗi tháng, số tin nhắn mỗi ngày. Đây là căn cứ chọn gói và số tài khoản.',
+      'Mục G (kết nối hệ thống) và H (triển khai) là phần kỹ thuật. Nếu người gặp không nắm, hẹn người phụ trách IT hoặc kế toán bổ sung.',
+      'CRM chỉ kết nối Zalo OA, không kết nối Zalo cá nhân. Ứng dụng di động đang trong lộ trình, không hứa ngày có.',
+      'Mục J do Sales tự điền sau buổi gặp, không đưa cho khách.'
+    ],
+    sections: [
+      { id: 'A', title: 'Thông tin doanh nghiệp & người liên hệ', blocks: [
+        { type: 'table', head: ['Thông tin', 'Ghi chú'], rows: [
+          { id: 'a_ten_dn', label: 'Tên doanh nghiệp', required: true },
+          { id: 'a_mst', label: 'Mã số thuế' },
+          { id: 'a_nganh', label: 'Ngành nghề chính (bất động sản, giáo dục, bán lẻ, sản xuất, dịch vụ, phân phối...)' },
+          { id: 'a_quy_mo', label: 'Quy mô: tổng nhân sự · số chi nhánh / văn phòng' },
+          { id: 'a_web', label: 'Website · Fanpage' },
+          { id: 'a_lien_he', label: 'Người liên hệ · chức vụ' },
+          { id: 'a_dien_thoai', label: 'Điện thoại · Zalo' },
+          { id: 'a_email', label: 'Email' },
+          { id: 'a_ngay', label: 'Ngày khảo sát', kind: 'date', auto: 'today' },
+          { id: 'a_sales', label: 'Sales phụ trách', auto: 'me' }
+        ] }
+      ] },
+      { id: 'B', title: 'Mô hình bán hàng & điểm nghẽn hiện tại', blocks: [
+        { type: 'checks', id: 'b_ban_cho', label: 'Quý khách bán cho ai? (chọn tất cả mục phù hợp)', options: [
+          { v: 'b2b', label: 'Doanh nghiệp (B2B)' },
+          { v: 'b2c', label: 'Khách cá nhân (B2C)' },
+          { v: 'dai_ly', label: 'Qua đại lý, nhà phân phối' },
+          { v: 'nuoc_ngoai', label: 'Khách nước ngoài' }
+        ] },
+        { type: 'radio', id: 'b_chu_ky', label: 'Chu kỳ bán hàng thường gặp (từ lúc có khách quan tâm đến lúc chốt)', options: [
+          { v: 'ngay', label: 'Trong ngày' },
+          { v: 'duoi_1t', label: 'Dưới 1 tháng' },
+          { v: '1_3t', label: '1–3 tháng' },
+          { v: 'tren_3t', label: 'Trên 3 tháng' }
+        ] },
+        { type: 'checks', id: 'b_diem_nghen', label: 'Doanh nghiệp đang gặp những điểm nghẽn nào? (chọn tất cả; ghi điểm nặng nhất vào bảng bên dưới)', options: [
+          { v: 'phan_manh', label: 'Dữ liệu khách nằm rải rác (Zalo cá nhân, Excel, sổ tay); nhân viên nghỉ hoặc sao chép mang theo khách' },
+          { v: 'trung', label: 'Trùng khách, tranh chấp khách / hoa hồng; thông tin khách thiếu, sai, không cập nhật' },
+          { v: 'cham', label: 'Phản hồi chậm, quên gọi lại; khách nóng sang đối thủ trước khi được chăm' },
+          { v: 'sai_nguoi', label: 'Tư vấn sai người: người liên hệ không có quyền ký, dự báo doanh thu ảo' },
+          { v: 'treo', label: 'Không biết cơ hội đang ở bước nào, nhiều cơ hội "treo" lâu; không ghi lại lý do mất khách' },
+          { v: 'bao_gia', label: 'Báo giá làm bằng Word / Excel, chiết khấu không ai kiểm soát' },
+          { v: 'nhap_lieu', label: 'Sales mất nhiều thời gian nhập liệu, làm báo cáo tay thay vì bán hàng' },
+          { v: 'hieu_suat', label: 'Không đo được hiệu suất từng người; báo cáo chậm, lệch số; không dự báo được doanh thu' },
+          { v: 'nhan_vien', label: 'Nhân viên mới chậm làm quen; khó quản lý sales ngoài hiện trường, nhiều chi nhánh' },
+          { v: 'marketing', label: 'Không biết kênh quảng cáo nào ra doanh thu; lead từ marketing sang sales bị bỏ sót' },
+          { v: 'sau_ban', label: 'Khách mua xong bị quên (không nhắc gia hạn, không tích điểm); khiếu nại không ai theo đến cùng' },
+          { v: 'phoi_hop', label: 'Phối hợp rời rạc giữa sales – kế toán – kho – triển khai (công nợ, giao hàng, bàn giao)' },
+          { v: 'khac', label: 'Khác', input: 'Ghi rõ điểm nghẽn khác' }
+        ] },
+        { type: 'table', head: ['Câu hỏi', 'Ghi chú'], rows: [
+          { id: 'b_quy_mo_ban', label: 'Sản phẩm / dịch vụ chính · giá trị đơn trung bình · số lead mới / tháng · số khách chốt / tháng', kind: 'textarea' },
+          { id: 'b_nang_nhat', label: 'Điểm nghẽn nặng nhất là gì, đang làm mất bao nhiêu (khách, doanh thu, thời gian)?', kind: 'textarea' },
+          { id: 'b_thanh_cong', label: 'Sau 6 tháng dùng CRM, thế nào là thành công? (tỉ lệ chốt, thời gian phản hồi, doanh số...)', kind: 'textarea' }
+        ] }
+      ] },
+      { id: 'C', title: 'Hiện trạng quản lý khách hàng', blocks: [
+        { type: 'grid', id: 'c_cong_cu', label: 'Công cụ đang dùng', head: 'Công cụ đang dùng', cols: [
+          { k: 'co', label: 'Có / Không', kind: 'yesno' },
+          { k: 'ten', label: 'Tên phần mềm · số người dùng', kind: 'text' },
+          { k: 'note', label: 'Ghi chú', kind: 'text' }
+        ], rows: [
+          { v: 'excel', label: 'Excel / Google Sheets' },
+          { v: 'so_tay', label: 'Sổ tay, Zalo cá nhân của từng nhân viên' },
+          { v: 'crm', label: 'Phần mềm CRM khác (Salesforce, HubSpot, Getfly, MISA AMIS CRM...)' },
+          { v: 'pos', label: 'Phần mềm bán hàng / POS (KiotViet, Sapo, SIPOS...)' },
+          { v: 'ke_toan', label: 'Phần mềm kế toán / ERP' },
+          { v: 'tong_dai', label: 'Tổng đài điện thoại' }
+        ] },
+        { type: 'table', head: ['Câu hỏi', 'Ghi chú'], rows: [
+          { id: 'c_du_lieu', label: 'Tổng số khách / liên hệ đang có, nằm ở đâu; có cần chuyển sang CRM không (khách hàng, lịch sử mua, cơ hội đang theo)?', kind: 'textarea' },
+          { id: 'c_doi_crm', label: 'Nếu đã dùng CRM: vì sao muốn đổi? Nhân viên có chịu dùng không?', kind: 'textarea' }
+        ] }
+      ] },
+      { id: 'D', title: 'Quy trình bán hàng & đội ngũ', blocks: [
+        { type: 'table', head: ['Câu hỏi', 'Ghi chú'], rows: [
+          { id: 'd_doi', label: 'Đội kinh doanh: số nhân viên · số quản lý · số nhóm / khu vực / chi nhánh' },
+          { id: 'd_quy_trinh', label: 'Quy trình bán: các bước hiện tại (ví dụ tiếp nhận → tư vấn → báo giá → đàm phán → ký); có mấy quy trình khác nhau theo sản phẩm / nhóm khách?', kind: 'textarea' },
+          { id: 'd_quy_tac', label: 'Quy tắc vận hành: chia khách mới cho ai, phải phản hồi trong bao lâu (SLA), ai duyệt chiết khấu đến mức nào?', kind: 'textarea' },
+          { id: 'd_kpi', label: 'KPI đang dùng để đánh giá nhân viên kinh doanh', kind: 'textarea' }
+        ] },
+        { type: 'checks', id: 'd_can_lam', label: 'Những việc cần làm trên CRM', options: [
+          { v: 'ho_so', label: 'Hồ sơ khách 360° (lịch sử tương tác, mua hàng, tài liệu); phân loại, gắn thẻ khách' },
+          { v: 'chong_trung', label: 'Chống trùng khách theo số điện thoại; nhập dữ liệu hàng loạt từ Excel' },
+          { v: 'chia_khach', label: 'Tự động chia khách mới (xoay vòng, theo vùng, theo sản phẩm); thu hồi khách quá hạn không chăm' },
+          { v: 'bant', label: 'Chấm điểm khách theo BANT, chặn chuyển thành cơ hội khi chưa gặp người quyết định' },
+          { v: 'sla', label: 'Đồng hồ SLA theo giờ làm việc, leo thang khi sắp trễ' },
+          { v: 'pipeline', label: 'Nhiều quy trình bán (pipeline); nhắc việc, lịch hẹn; ghi lý do thắng / thua' },
+          { v: 'bao_gia', label: 'Danh mục sản phẩm, bảng giá; báo giá theo mẫu, duyệt chiết khấu nhiều cấp, lưu vết' },
+          { v: 'hop_dong', label: 'Hợp đồng, đơn hàng, thu tiền, công nợ; xem tồn kho trên hồ sơ khách' },
+          { v: 'kpi', label: 'Giao KPI, báo cáo theo thời gian thực, dự báo doanh thu' },
+          { v: 'hoa_hong', label: 'Tính hoa hồng, thưởng; quản lý đại lý, cộng tác viên' },
+          { v: 'phan_quyen', label: 'Phân quyền theo sơ đồ tổ chức, nhật ký thao tác' },
+          { v: 'ho_tro', label: 'Tiếp nhận và xử lý yêu cầu hỗ trợ, khiếu nại, bảo hành' },
+          { v: 'sau_ban', label: 'Chăm sóc sau bán: nhắc gia hạn, sinh nhật, tích điểm, hạng thành viên, khảo sát hài lòng' },
+          { v: 'mobile', label: 'Ứng dụng di động cho nhân viên: ghi chú, chụp ảnh, check-in tại khách (đang trong lộ trình)' },
+          { v: 'khac', label: 'Khác', input: 'Ghi rõ nhu cầu khác' }
+        ] }
+      ] },
+      { id: 'E', title: 'Kênh liên lạc & chăm sóc khách hàng', blocks: [
+        { type: 'grid', id: 'e_kenh', label: 'Kênh khách liên hệ', head: 'Kênh khách liên hệ', cols: [
+          { k: 'co', label: 'Có / Không', kind: 'yesno' },
+          { k: 'so', label: 'Số khách / tin nhắn mỗi ngày', kind: 'text', width: 'sm' },
+          { k: 'note', label: 'Ghi chú', kind: 'text' }
+        ], rows: [
+          { v: 'zalo_oa', label: 'Zalo OA' },
+          { v: 'zalo_cn', label: 'Zalo cá nhân của nhân viên (CRM chỉ kết nối Zalo OA — tư vấn chuyển sang OA)' },
+          { v: 'messenger', label: 'Facebook Messenger / Fanpage' },
+          { v: 'email', label: 'Email' },
+          { v: 'tong_dai', label: 'Tổng đài / hotline' },
+          { v: 'website', label: 'Website (form, chat)' },
+          { v: 'quang_cao', label: 'Quảng cáo thu lead (Facebook, Google, TikTok)' },
+          { v: 'su_kien', label: 'Cửa hàng, sự kiện, hội chợ' },
+          { v: 'gioi_thieu', label: 'Giới thiệu, đối tác, cộng tác viên' }
+        ] },
+        { type: 'table', head: ['Câu hỏi', 'Ghi chú'], rows: [
+          { id: 'e_tong_dai', label: 'Tổng đài đang dùng (nhà cung cấp, có ghi âm không) · số người trực tin nhắn / CSKH và khung giờ trực', kind: 'textarea' },
+          { id: 'e_tin_nhan', label: 'Có 3–5 tin nhắn thật của khách (đã che thông tin) để Redsun demo AI đọc hiểu không?' }
+        ] }
+      ] },
+      { id: 'F', title: 'Trợ lý AI & AI Marketing Automation', blocks: [
+        { type: 'checks', id: 'f_tro_ly', label: 'Trợ lý AI cho đội bán hàng — Quý khách muốn dùng', options: [
+          { v: 'ban_tin', label: 'AI chủ động báo cáo: bản tin mỗi sáng bằng giọng nói và văn bản (gọi ai trước, deal nào sắp trễ, báo giá nào chờ duyệt)' },
+          { v: 'co_van', label: 'Cố vấn 4 ô trên mỗi hồ sơ: khách cần gì, đã làm gì, đang vướng ở đâu, nên làm gì tiếp' },
+          { v: 'chat', label: 'Khung chat ra lệnh: tóm tắt lịch sử khách, tạo lịch gọi lại, soạn nháp trả lời' },
+          { v: 'voice', label: 'AI voice & chat, ghi âm cuộc gọi thành văn bản' },
+          { v: 'so_lieu', label: 'Trợ lý số liệu: hỏi báo cáo bằng lời; kết nối Claude / ChatGPT qua MCP' },
+          { v: 'khac', label: 'Yêu cầu khác', input: 'Ghi rõ yêu cầu' }
+        ] },
+        { type: 'checks', id: 'f_marketing', label: 'AI Marketing Automation — những việc đang làm hoặc muốn làm', options: [
+          { v: 'noi_dung', label: 'Nghiên cứu xu hướng, viết bài, thiết kế hình ảnh / video bằng AI' },
+          { v: 'dang_bai', label: 'Lập lịch và đăng bài tự động đa nền tảng, gom tương tác mạng xã hội' },
+          { v: 'chien_dich', label: 'Quản lý chiến dịch và quảng cáo tập trung, giữ nguồn UTM đến tận doanh thu' },
+          { v: 'landing', label: 'Landing page (Webino) và Lead Form chống trùng số điện thoại' },
+          { v: 'nuoi_duong', label: 'Kịch bản nuôi dưỡng tự động qua Email / SMS / Zalo ZNS' },
+          { v: 'bao_cao', label: 'Báo cáo hiệu quả kênh, chi phí trên lead, doanh thu theo chiến dịch' }
+        ] },
+        { type: 'table', head: ['Câu hỏi', 'Ghi chú'], rows: [
+          { id: 'f_quy_mo', label: 'Quy mô sử dụng: số người dùng AI hằng ngày · số email marketing / tháng · ngân sách quảng cáo / tháng · marketing nội bộ hay agency (tham khảo: 1 sales dùng bản tin sáng + 10 lượt tóm tắt / ngày ≈ 300 credit / tháng)', kind: 'textarea' },
+          { id: 'f_tai_lieu', label: 'Tài liệu sẵn có cho AI học (bảng giá, mô tả sản phẩm, câu hỏi thường gặp, kịch bản tư vấn)', kind: 'textarea' },
+          { id: 'f_lo_ngai', label: 'Lo ngại về AI (tự ý nhắn khách, chi phí, lộ dữ liệu)? Cần đặt trần credit theo người / phòng ban không?', kind: 'textarea' }
+        ] }
+      ] },
+      { id: 'G', title: 'Kết nối hệ thống & module Redsun BOS', blocks: [
+        { type: 'note', report: true, text: 'AI CRM nằm chung dữ liệu với Redsun BOS: bật thêm module khi cần, không nhập lại dữ liệu.' },
+        { type: 'checks', id: 'g_bos', label: 'Quý khách có nhu cầu quản lý thêm', options: [
+          { v: 'pos', label: 'Bán hàng / POS: đơn hàng, POS, sàn TMĐT' },
+          { v: 'kho', label: 'Mua hàng & Kho vận: đa kho, lô / serial, giao vận, COD' },
+          { v: 'tai_chinh', label: 'Quản trị Tài chính: thu chi, công nợ, hóa đơn điện tử, dòng tiền' },
+          { v: 'san_xuat', label: 'Vận hành & Sản xuất: BOM, yêu cầu nội bộ' },
+          { v: 'nhan_su', label: 'Quản trị Nhân sự: chấm công, lương, BHXH' },
+          { v: 'phan_tich', label: 'Phân tích & Dự báo: BI đa chiều, dự báo doanh thu' },
+          { v: 'van_phong', label: 'Văn phòng số: công việc, phê duyệt điện tử, ký số' },
+          { v: 'ke_hoach', label: 'Kế hoạch & Ngân sách: OKR / KPI, phân bổ ngân sách' }
+        ] },
+        { type: 'checks', id: 'g_ket_noi', label: 'Hệ thống sẵn có cần kết nối', options: [
+          { v: 'website', label: 'Website', input: 'Nền tảng website' },
+          { v: 'phan_mem', label: 'Phần mềm đã nêu ở mục C (kế toán / ERP, POS, tổng đài)', input: 'Tên phần mềm' },
+          { v: 'email', label: 'Email công ty (Google Workspace, Microsoft 365)' },
+          { v: 'api', label: 'Hệ thống khác qua API', input: 'Tên hệ thống' }
+        ] },
+        { type: 'table', head: ['Câu hỏi', 'Ghi chú'], rows: [
+          { id: 'g_it', label: 'Người phụ trách IT / kết nối phía khách (tên, liên hệ)' },
+          { id: 'g_mau_nganh', label: 'Ngành có trong 17 mẫu ngành dựng sẵn không? Trường thông tin riêng và báo cáo quản lý cần xem (ngày / tuần / tháng)', kind: 'textarea' }
+        ] }
+      ] },
+      { id: 'H', title: 'Người dùng, bảo mật & triển khai', blocks: [
+        { type: 'radio', id: 'h_so_user', label: 'Số tài khoản dự kiến (quyết định gói)', options: [
+          { v: 'duoi_5', label: 'Dưới 5 người' },
+          { v: '5_20', label: '5 – 20 người' },
+          { v: '21_50', label: '21 – 50 người' },
+          { v: '51_100', label: '51 – 100 người' },
+          { v: '101_300', label: '101 – 300 người' },
+          { v: 'tren_300', label: 'Trên 300 người' }
+        ] },
+        { type: 'table', head: ['Câu hỏi', 'Ghi chú'], rows: [
+          { id: 'h_tai_khoan', label: 'Số tài khoản cần ngay · sau 12 tháng · chia theo vai trò (sales, quản lý, CSKH, marketing, kế toán)', kind: 'textarea' },
+          { id: 'h_bao_mat', label: 'Phân quyền & bảo mật: ai được xem dữ liệu gì, có che số điện thoại / chặn xuất tệp khách không; yêu cầu nơi lưu dữ liệu, SSO, đa pháp nhân', kind: 'textarea' },
+          { id: 'h_trien_khai', label: 'Triển khai: ai là quản trị hệ thống phía khách; đào tạo bao nhiêu buổi, trực tiếp hay online', kind: 'textarea' },
+          { id: 'h_lo_ngai', label: 'Lo ngại lớn nhất khi triển khai (nhân viên ngại dùng, gián đoạn bán hàng, mất dữ liệu)? Ai sẽ thúc đội ngũ dùng hằng ngày?', kind: 'textarea' }
+        ] },
+        { type: 'note', report: true, text: 'Theo Luật Bảo vệ dữ liệu cá nhân 2025 và Nghị định 356/2025/NĐ-CP (hiệu lực từ 01/01/2026), doanh nghiệp là bên kiểm soát dữ liệu khách hàng, Redsun là bên xử lý và ký thỏa thuận xử lý dữ liệu. Doanh nghiệp cần có sự đồng ý của khách khi thu thập dữ liệu.' }
+      ] },
+      { id: 'I', title: 'Ngân sách, thời hạn & người ra quyết định', blocks: [
+        { type: 'radio', id: 'i_ngan_sach', label: 'Ngân sách dự kiến cho năm đầu (thuê bao, triển khai, đào tạo)', options: [
+          { v: 'duoi_50', label: 'Dưới 50 triệu' },
+          { v: '50_150', label: '50 – 150 triệu' },
+          { v: '150_500', label: '150 – 500 triệu' },
+          { v: 'tren_500', label: 'Trên 500 triệu' },
+          { v: 'chua_xd', label: 'Chưa xác định, cần Redsun tư vấn' }
+        ] },
+        { type: 'table', head: ['Câu hỏi', 'Ghi chú'], rows: [
+          { id: 'i_thoi_diem', label: 'Thời điểm muốn bắt đầu dùng; có gắn với mốc nào không (đầu năm tài chính, mùa cao điểm, đợt tuyển sales mới)?', kind: 'textarea' },
+          { id: 'i_quyet_dinh', label: 'Ra quyết định: ai quyết cuối cùng, có cần trình duyệt không; tiêu chí quan trọng nhất khi chọn nhà cung cấp (giá, tính năng, kết nối Zalo OA, AI, dễ dùng, hỗ trợ, bảo mật)', kind: 'textarea' },
+          { id: 'i_so_sanh', label: 'Đang so sánh với bên nào (MISA AMIS CRM, Getfly, Bitrix24, HubSpot...)? Muốn dùng thử 14 ngày, thanh toán tháng hay năm (giảm 15%), cần hóa đơn VAT không?', kind: 'textarea' }
+        ] }
+      ] },
+      { id: 'J', title: 'Sales đánh giá (nội bộ, không gửi khách)', internal: true, blocks: [
+        { type: 'note', report: true, text: 'Chọn gói theo tín hiệu rõ nhất ở mục D, E, F, G, H. Chỉ cần một tín hiệu của gói cao hơn là nên đề xuất gói đó. Business là gói nên chốt cho phần lớn khách.' },
+        { type: 'grid', id: 'j_tin_hieu', label: 'Tín hiệu từ khách', head: 'Tín hiệu từ khách → gói gợi ý', cols: [
+          { k: 'khop', label: 'Khách có tín hiệu này', kind: 'check' },
+          { k: 'note', label: 'Ghi chú', kind: 'text' }
+        ], rows: [
+          { v: 'starter', label: '5–20 người dùng, 1 quy trình bán, hộp thư Zalo OA / Facebook / Email, báo giá theo mẫu → AI CRM Starter' },
+          { v: 'business', label: '21–300 người dùng; hoặc cần tổng đài, AI voice, AI Marketing 12 cấu phần, duyệt báo giá nhiều cấp, nhiều nhóm / khu vực, POS → AI CRM + AI Marketing (Business)' },
+          { v: 'enterprise', label: 'Trên 300 người dùng; hoặc cần Kho, Tài chính, Nhân sự, Sản xuất, đa chi nhánh, đa pháp nhân, MCP → Redsun BOS Suite (Enterprise)' }
+        ] },
+        { type: 'table', head: ['Đánh giá', 'Ghi chú'], rows: [
+          { id: 'j_goi', label: 'Gói gợi ý · số tài khoản · thanh toán tháng / năm · AI credit dự kiến, có cần nạp thêm' },
+          { id: 'j_bao_gia_them', label: 'Cần báo giá thêm: module BOS, kết nối, chuyển dữ liệu, cấu hình quy trình, đào tạo', kind: 'textarea' },
+          { id: 'j_demo', label: 'Điểm nghẽn nặng nhất của khách → phần demo cần tập trung', kind: 'textarea' },
+          { id: 'j_ban_them', label: 'Cơ hội bán thêm: Website (Webino), SIPOS Retail, module Redsun BOS', kind: 'textarea' }
+        ] },
+        { type: 'radio', id: 'j_tiem_nang', label: 'Mức độ tiềm năng', options: [
+          { v: 'nong', label: 'Nóng' }, { v: 'am', label: 'Ấm' }, { v: 'lanh', label: 'Lạnh' }
+        ] },
+        { type: 'table', head: ['Đánh giá', 'Ghi chú'], rows: [
+          { id: 'j_thieu', label: 'Thông tin còn thiếu, cần hỏi bổ sung', kind: 'textarea' }
+        ] },
+        { type: 'checks', id: 'j_buoc_tiep', label: 'Bước tiếp theo', options: [
+          { v: 'crm', label: 'Nhập dữ liệu vào CRM' },
+          { v: 'bao_gia', label: 'Gửi báo giá riêng trong 24 giờ làm việc' },
+          { v: 'dung_thu', label: 'Cấp tài khoản dùng thử 14 ngày' },
+          { v: 'demo', label: 'Hẹn demo đúng điểm nghẽn, dùng tin nhắn thật của khách (đã che thông tin)' },
+          { v: 'gap_it', label: 'Hẹn gặp người phụ trách IT nếu mục G–H còn thiếu' },
+          { v: 'gap_qd', label: 'Hẹn gặp người ra quyết định' }
+        ] }
+      ] }
+    ]
   }
 ];
 
@@ -613,8 +851,15 @@ export function buildPdfDoc(tpl, ans, opts = {}) {
       }
     }
   }
+  // Phông Roboto của pdfmake thiếu một số ký tự mũi tên: thay bằng ký tự tương đương
+  const fixGlyphs = (n) => {
+    if (typeof n === 'string') return n.replace(/→/g, '->').replace(/›/g, '>').replace(/←/g, '<-');
+    if (Array.isArray(n)) return n.map(fixGlyphs);
+    if (n && typeof n === 'object' && !(n.image)) { const o = {}; for (const k in n) o[k] = (k === 'text' || k === 'stack' || k === 'columns' || k === 'table' || k === 'body') ? fixGlyphs(n[k]) : n[k]; return o; }
+    return n;
+  };
   return {
-    pageSize: 'A4', pageMargins: [40, 40, 40, 48], content,
+    pageSize: 'A4', pageMargins: [40, 40, 40, 48], content: fixGlyphs(content),
     defaultStyle: { font: 'Roboto', fontSize: 10, lineHeight: 1.2 },
     info: { title: `${tpl.short} – ${surveyTitle(tpl, ans)}`, author: meta.sales || 'Redsun' },
     footer: (page, pages) => ({ columns: [
