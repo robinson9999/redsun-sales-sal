@@ -80,5 +80,6 @@ Gồm 4 phần, bấm **Lưu cài đặt** ở cuối trang để lưu.
 - **Thời hạn tối đa của phiên (ngày)**: dù vẫn thao tác, sau số ngày này phải đăng nhập lại.
 - Số lần nhập sai trước khi tạm khóa, thời gian tạm khóa (phút).
 - **Gửi email thông báo mỗi lần đăng nhập** tới email chủ tài khoản (thời gian, IP, vị trí ước tính, thiết bị), kèm tùy chọn gửi thêm **1 bản BCC** tới một email (ví dụ hộp thư bảo mật). Cần cấu hình SMTP (mục 2) trước.
+- **Tiêu đề email thông báo**: để trống thì dùng mặc định "Thông báo đăng nhập tài khoản {email} của {ten_mien}". Có thể chèn `{email}`, `{ten}`, `{ten_mien}`, `{thoi_gian}`.
 
 *(Tùy chọn, tăng bảo mật)* Cloudflare → Workers & Pages → redsun-quy-che → Settings → Variables and Secrets → thêm **Secret** `SETTINGS_KEY` (chuỗi ngẫu nhiên dài) để mã hóa mật khẩu SMTP bằng khóa riêng. Sau khi thêm, vào Cài đặt nhập lại mật khẩu SMTP một lần.

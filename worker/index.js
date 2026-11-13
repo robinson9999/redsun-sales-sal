@@ -213,7 +213,7 @@ const SETTING_DEFAULTS = {
   survey_recipients: '', survey_cc: '', survey_bcc: '', survey_cc_sales: '1', survey_include_internal: '1',
   survey_subject_prefix: '[Khảo sát]',
   session_days: '7', max_fails: '8', lock_minutes: '15',
-  idle_minutes: '0', login_notify: '0', login_notify_bcc: ''
+  idle_minutes: '0', login_notify: '0', login_notify_bcc: '', login_notify_subject: ''
 };
 let settingsCache = null, settingsAt = 0;
 async function getSettings(env, fresh) {
@@ -298,6 +298,7 @@ function smtpErrVi(e, opts) {
 const surveyCode = (r) => `KS-${new Date(r.created_at * 1000).getFullYear()}-${String(r.id).padStart(4, '0')}`;
 const fmtTs = (ts) => ts ? new Date(ts * 1000).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }) : '';
 
+const LOGIN_SUBJECT_DEFAULT = 'Thông báo đăng nhập tài khoản {email} của {ten_mien}';
 async function notifyLogin(env, cfg, u, req) {
   if (!mailReady(env, cfg)) return;
   const to = parseEmails(u.email); if (!to.length) return;
@@ -316,7 +317,10 @@ async function notifyLogin(env, cfg, u, req) {
     <table style="border-collapse:collapse;width:100%;font-size:13px">${rows.map(([k, v]) => `<tr><td style="padding:6px 10px;border:1px solid #e2e8f0;background:#f8fafc;width:38%;color:#475569">${e(k)}</td><td style="padding:6px 10px;border:1px solid #e2e8f0">${e(v)}</td></tr>`).join('')}</table>
     <p style="margin:14px 0 0;color:#b91c1c"><b>Nếu không phải bạn đăng nhập</b>, hãy đổi mật khẩu ngay và báo Admin.</p></div>`;
   const text = `Tài khoản của bạn vừa đăng nhập vào ${host}.\n` + rows.map(([k, v]) => `- ${k}: ${v}`).join('\n') + '\nNếu không phải bạn, hãy đổi mật khẩu ngay và báo Admin.';
-  await sendMail(env, cfg, { to, bcc, subject: `[Đăng nhập] ${u.name} – ${when}`, html, text });
+  // Tiêu đề: theo Cài đặt (có thể dùng {email}, {ten}, {ten_mien}, {thoi_gian}); để trống thì dùng mặc định
+  const tplSubj = (cfg.login_notify_subject || '').trim() || LOGIN_SUBJECT_DEFAULT;
+  const subject = tplSubj.replace(/\{email\}/g, u.email).replace(/\{ten\}/g, u.name).replace(/\{ten_mien\}/g, host).replace(/\{thoi_gian\}/g, when).slice(0, 200);
+  await sendMail(env, cfg, { to, bcc, subject, html, text });
 }
 
 async function emailSurvey(env, url, row, owner) {
@@ -622,6 +626,7 @@ async function api(req, env, url, me, ctx) {
       if ('lock_minutes' in b) upd.lock_minutes = String(intSetting(b.lock_minutes, 15, 1, 1440));
       if ('idle_minutes' in b) { let v = intSetting(b.idle_minutes, 0, 0, 1440); if (v > 0 && v < 2) v = 2; upd.idle_minutes = String(v); }
       if ('login_notify' in b) upd.login_notify = b.login_notify ? '1' : '0';
+      if ('login_notify_subject' in b) upd.login_notify_subject = str(b.login_notify_subject, 200);
       if ('login_notify_bcc' in b) { const v = normEmail(b.login_notify_bcc); if (v && parseEmails(v).length !== 1) return bad('Email nhận bản BCC thông báo đăng nhập không hợp lệ (chỉ 1 email).'); upd.login_notify_bcc = v; }
       await setSettings(env, upd);
       return json({ ok: true, saved: Object.keys(upd).length });

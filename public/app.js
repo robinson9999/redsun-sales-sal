@@ -925,6 +925,7 @@
           ${field('Thời gian tạm khóa (phút)', inp('lock_minutes', c.lock_minutes, 'type="number" min="1" max="1440"'), '1–1440 phút')}</div>
           <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
             ${chk('login_notify', c.login_notify === '1', '<b>Gửi email thông báo mỗi lần đăng nhập</b> tới email của chủ tài khoản (thời gian, IP, vị trí ước tính, thiết bị)')}
+            ${field('Tiêu đề email thông báo', inp('login_notify_subject', c.login_notify_subject, 'placeholder="Thông báo đăng nhập tài khoản {email} của {ten_mien}"'), 'Để trống = dùng tiêu đề mặc định. Có thể chèn: <code>{email}</code> email tài khoản · <code>{ten}</code> họ tên · <code>{ten_mien}</code> tên miền (sales-kpi.redsun.vn) · <code>{thoi_gian}</code> thời gian đăng nhập.')}
             ${field('Gửi thêm 1 bản thông báo (BCC) tới – tùy chọn', inp('login_notify_bcc', c.login_notify_bcc, 'type="email" placeholder="baomat@redsun.vn"'), 'Chỉ 1 email. Người dùng không thấy địa chỉ này. Để trống nếu không cần.')}
             ${d.mail_mode ? '' : '<p class="text-xs text-amber-800">⚠ Chưa cấu hình máy chủ gửi email (mục 2) nên chưa gửi được thông báo.</p>'}
           </div></div>`)}
@@ -941,7 +942,7 @@
       v('smtp_security').onchange = () => { const s2 = v('smtp_security').value; if (s2 === 'ssl') v('smtp_port').value = 465; if (s2 === 'starttls') v('smtp_port').value = 587; };
       const collect = () => {
         const b = {};
-        for (const k of ['company_name', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes', 'idle_minutes', 'login_notify_bcc']) b[k] = v(k).value;
+        for (const k of ['company_name', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes', 'idle_minutes', 'login_notify_bcc', 'login_notify_subject']) b[k] = v(k).value;
         b.survey_include_internal = v('survey_include_internal').checked; b.login_notify = v('login_notify').checked;
         if (v('smtp_pass').value) b.smtp_pass = v('smtp_pass').value;
         if (v('pass_clear') && v('pass_clear').checked) b.smtp_pass_clear = true;
