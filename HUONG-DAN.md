@@ -39,7 +39,7 @@ Tab **Giao KPI**:
 Tab **Phiếu khảo sát**:
 1. Chọn mẫu phiếu (hiện có: **Phiếu khảo sát nhu cầu Website Doanh nghiệp**) → **Bắt đầu điền phiếu**. Ngày khảo sát và Sales phụ trách được điền sẵn.
 2. Điền các mục A–H. Phiếu **tự lưu nháp** sau vài giây; có thể quay lại danh sách và **Tiếp tục điền** sau.
-3. **Hoàn tất & gửi**: phiếu được lưu, hiển thị kết quả trên màn hình và **gửi email** tới danh sách nhận đã cài đặt (kèm bản sao cho Sales nếu bật). Người nhận bấm Trả lời sẽ trả lời thẳng cho Sales.
+3. **Lưu & gửi email**: nút bị khóa và hiện thanh "Đang lưu & gửi email, vui lòng chờ…". Xong thì phiếu hiển thị kết quả kèm thông báo "Phiếu đã được lưu và đã gửi email đến [email người lập phiếu]". Email luôn gửi tới **người lập phiếu**; Admin có thể cài thêm CC/BCC nếu cần.
 4. Ở màn hình kết quả: **⬇ PDF gửi khách** (ẩn mục H nội bộ) hoặc **⬇ PDF nội bộ** (đủ mục H); **Gửi lại email**; **Sửa phiếu**.
 
 Quyền xem: Sales xem phiếu của mình; Quản lý xem phiếu của mình và nhân viên dưới quyền; Admin xem tất cả. Chỉ người lập (hoặc Admin) được sửa; Sales chỉ xóa được phiếu nháp.
@@ -69,12 +69,11 @@ Gồm 4 phần, bấm **Lưu cài đặt** ở cuối trang để lưu.
 - Mật khẩu được mã hóa khi lưu và **không bao giờ hiển thị lại**. Ô mật khẩu để trống = giữ mật khẩu cũ.
 - Bấm **Lưu & gửi thử** để gửi một email thử tới địa chỉ nhập bên cạnh. Nếu lỗi, hệ thống báo nguyên nhân bằng tiếng Việt (sai mật khẩu, sai cổng, máy chủ từ chối người gửi…).
 
-**3. Email nhận phiếu khảo sát:**
-- **To**: những người nhận chính (bắt buộc ít nhất 1 email).
-- **CC**: bản copy, người nhận thấy danh sách này. **BCC**: bản copy ẩn, phù hợp để lưu trữ.
-- **Tiền tố tiêu đề**, ví dụ `[Khảo sát]`.
-- Tùy chọn **gửi kèm bản sao cho Sales lập phiếu** và **kèm mục H nội bộ** trong email.
-- Người nhận bấm *Trả lời* sẽ trả lời thẳng cho Sales lập phiếu. Phiếu hoàn tất khi chưa cấu hình email vẫn được lưu; sau khi cấu hình xong, mở phiếu và bấm **Gửi lại email**.
+**3. Email phiếu khảo sát:**
+- Phiếu luôn được gửi tới **email của người lập phiếu**, không cần cài người nhận.
+- **CC / BCC (tùy chọn)**: thêm người nhận bản copy, ví dụ trưởng phòng (CC) hoặc hộp thư lưu trữ (BCC). Để trống nếu không cần.
+- **Tiền tố tiêu đề**, ví dụ `[Khảo sát]`; tùy chọn **kèm mục nội bộ** (Sales đánh giá) trong email.
+- Phiếu hoàn tất khi chưa cấu hình SMTP vẫn được lưu; sau khi cấu hình xong, mở phiếu và bấm **Gửi lại email**.
 
 **4. Bảo mật đăng nhập:** thời hạn phiên đăng nhập (ngày), số lần nhập sai trước khi tạm khóa, thời gian tạm khóa (phút).
 

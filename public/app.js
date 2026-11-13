@@ -577,7 +577,7 @@
     sent_test: ['Đã gửi (thử nghiệm)', 'bg-emerald-100 text-emerald-800'],
     failed: ['Gửi email lỗi', 'bg-redsun-100 text-redsun-800'],
     not_configured: ['Hoàn tất – chưa cấu hình email', 'bg-amber-100 text-amber-800'],
-    no_recipients: ['Hoàn tất – chưa có email nhận', 'bg-amber-100 text-amber-800']
+    no_recipients: ['Đã lưu – tài khoản chưa có email', 'bg-amber-100 text-amber-800']
   };
   const svStatus = (r) => r.status === 'draft' ? STATUS.draft : (STATUS[r.email_status] || ['Hoàn tất', 'bg-blue-100 text-blue-800']);
   const pill = ([t, c]) => `<span class="px-2 py-0.5 rounded-full text-[11px] font-bold ${c}">${t}</span>`;
@@ -599,12 +599,11 @@
       const [d, st] = await Promise.all([api('/api/surveys'), api('/api/settings/survey')]);
       SV.list = d.surveys; SV.settings = st;
       const admin = S.me.app_role === 'admin', many = S.me.app_role !== 'staff';
-      const mailOk = st.mail_ready, rcp = st.recipients;
+      const mailOk = st.mail_ready;
       const toSettings = admin ? ' <button data-go-settings class="font-bold underline">Mở Cài đặt</button>' : ' Vui lòng báo Admin.';
       const mailInfo = !mailOk
         ? `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Hệ thống <b>chưa cấu hình máy chủ gửi email (SMTP)</b>. Phiếu vẫn được lưu và xuất PDF bình thường; email gửi được sau khi Admin cấu hình.${toSettings}</div>`
-        : !rcp.length ? `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Chưa cài đặt email nhận phiếu.${toSettings}</div>`
-        : `<div class="text-sm text-slate-600">Phiếu hoàn tất sẽ được gửi tới: <b>${rcp.map(esc).join(', ')}</b>${st.cc.length ? ` • bản copy: ${st.cc.map(esc).join(', ')}` : ''}${st.cc_sales ? ' • kèm bản sao cho Sales lập phiếu' : ''}.${admin ? ' <button data-go-settings class="text-redsun-700 font-semibold hover:underline">Thay đổi</button>' : ''}</div>`;
+        : `<div class="text-sm text-slate-600">Phiếu hoàn tất sẽ được gửi tới email của người lập phiếu (bạn: <b>${esc(S.me.email)}</b>)${st.cc.length ? ` • bản copy: ${st.cc.map(esc).join(', ')}` : ''}.${admin ? ' <button data-go-settings class="text-redsun-700 font-semibold hover:underline">Cài đặt</button>' : ''}</div>`;
       const tplCards = SV.lib.TEMPLATES.map((t) => card(`<div class="p-5 flex flex-col h-full">
           <div class="text-3xl">${t.icon}</div><h3 class="font-extrabold text-slate-900 mt-2">${esc(t.name)}</h3>
           <p class="text-sm text-slate-500 mt-1 flex-grow">${esc(t.description)}</p>
@@ -702,7 +701,7 @@
         <div class="min-w-0 flex-grow"><div class="text-[11px] text-slate-500 truncate">${esc(tpl.name)}${SV.cur && SV.id ? ' • ' + esc(SV.cur.code || '') : ''}</div>
           <div class="flex items-center gap-2"><div class="h-2 w-32 sm:w-48 bg-slate-200 rounded-full overflow-hidden"><div id="sv-prog" class="h-full bg-redsun-600 rounded-full transition-all"></div></div><span id="sv-prog-t" class="text-xs font-bold text-slate-700"></span><span id="sv-saved" class="text-[11px] text-slate-400"></span></div></div>
         <button id="sv-draft" class="${BTN_S}">${editingSubmitted ? 'Lưu thay đổi' : 'Lưu nháp'}</button>
-        <button id="sv-submit" class="${BTN_P}">${editingSubmitted ? 'Lưu & gửi lại email' : 'Hoàn tất & gửi'}</button></div>
+        <button id="sv-submit" class="${BTN_P}">${editingSubmitted ? 'Lưu & gửi lại email' : 'Lưu & gửi email'}</button></div>
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <aside class="hidden lg:block lg:col-span-3 lg:sticky lg:top-56">${card(`<div class="p-3"><p class="text-[11px] font-bold uppercase text-slate-400 px-2 mb-1">Các mục</p>
           ${tpl.sections.map((s) => `<button data-jump="${s.id}" class="w-full text-left px-2 py-1.5 rounded-lg text-sm hover:bg-redsun-50 ${s.internal ? 'text-amber-800' : 'text-slate-700'}"><b class="text-redsun-700 mr-1">${s.id}.</b>${esc(s.title)}</button>`).join('')}</div>`)}</aside>
@@ -714,7 +713,7 @@
             ${s.internal ? '<p class="text-xs text-amber-800 -mt-2">Sales tự điền sau buổi gặp. Mục này không có trong bản PDF gửi khách.</p>' : ''}
             ${s.blocks.map(block).join('')}</div>`, s.internal ? 'border-amber-300' : '')).join('')}
           ${errBox('sv-err')}
-          <div class="flex justify-end gap-2 pb-10"><button id="sv-draft2" class="${BTN_S}">${editingSubmitted ? 'Lưu thay đổi' : 'Lưu nháp'}</button><button id="sv-submit2" class="${BTN_P}">${editingSubmitted ? 'Lưu & gửi lại email' : 'Hoàn tất & gửi'}</button></div>
+          <div class="flex justify-end gap-2 pb-10"><button id="sv-draft2" class="${BTN_S}">${editingSubmitted ? 'Lưu thay đổi' : 'Lưu nháp'}</button><button id="sv-submit2" class="${BTN_P}">${editingSubmitted ? 'Lưu & gửi lại email' : 'Lưu & gửi email'}</button></div>
         </div></div>`;
 
     const upd = () => { const p = SV.lib.progress(tpl, SV.ans); document.getElementById('sv-prog').style.width = p.pct + '%'; document.getElementById('sv-prog-t').textContent = `${p.pct}%`; };
@@ -749,6 +748,21 @@
     upd();
   }
 
+  // Thanh chờ khi lưu & gửi email: khóa các nút để không bấm lặp
+  function svBusy(on, text) {
+    const ids = ['sv-submit', 'sv-submit2', 'sv-draft', 'sv-draft2', 'sv-back', 'sv-resend', 'sv-resend2'];
+    ids.forEach((id) => { const b = document.getElementById(id); if (b) { b.disabled = on; b.classList.toggle('opacity-50', on); b.classList.toggle('cursor-not-allowed', on); } });
+    let bar = document.getElementById('sv-busy');
+    if (!on) { if (bar) bar.remove(); return; }
+    if (!bar) { bar = document.createElement('div'); bar.id = 'sv-busy'; document.body.appendChild(bar); }
+    bar.className = 'fixed inset-x-0 top-0 z-[100]';
+    bar.innerHTML = `<div class="h-1 w-full bg-redsun-100 overflow-hidden"><div class="h-full w-1/3 bg-redsun-600 sv-indet"></div></div>
+      <div class="mx-auto mt-3 w-fit max-w-[92vw] flex items-center gap-3 px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold shadow-xl">
+        <span class="inline-block w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>${esc(text)}</div>`;
+    if (!document.getElementById('sv-indet-css')) { const st = document.createElement('style'); st.id = 'sv-indet-css';
+      st.textContent = '@keyframes svIndet{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}.sv-indet{animation:svIndet 1.2s ease-in-out infinite}'; document.head.appendChild(st); }
+  }
+
   async function saveSurvey(submit, auto) {
     if (SV.saving) return; SV.saving = true; clearTimeout(SV.timer);
     const errEl = document.getElementById('sv-err'); if (errEl) errEl.classList.add('hidden');
@@ -756,15 +770,16 @@
       if (submit) {
         const errs = SV.lib.validateAnswers(SV.tpl, SV.ans);
         if (errs.length) { showErr('sv-err', errs.join(' ')); document.getElementById('sv-sec-A').scrollIntoView({ behavior: 'smooth' }); return; }
+        svBusy(true, 'Đang lưu & gửi email, vui lòng chờ…');
       }
       if (auto && !SV.id && !Object.keys(SV.ans).some((k) => !['a_ngay', 'a_sales'].includes(k))) return;   // chưa có gì để lưu
       const body = { answers: SV.ans, submit };
       const d = SV.id ? await api('/api/surveys/' + SV.id, { method: 'PUT', body }) : await api('/api/surveys', { method: 'POST', body: { ...body, template_id: SV.tpl.id } });
       SV.id = d.id; SV.dirty = false;
       const sv = document.getElementById('sv-saved'); if (sv) sv.textContent = `• đã lưu ${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
-      if (submit) { SV.lastMail = d; await openSurvey(SV.id, 'result'); }
+      if (submit) { SV.lastMail = d; await openSurvey(SV.id, 'result'); window.scrollTo(0, 0); }
     } catch (e) { if (errEl) showErr('sv-err', e.message); else alert(e.message); }
-    finally { SV.saving = false; }
+    finally { SV.saving = false; if (submit) svBusy(false); }
   }
 
   /* ---------- Kết quả ---------- */
@@ -774,7 +789,7 @@
     const meta = { sales: r.user_name, submitted: r.submitted_at ? new Date(r.submitted_at * 1000).toLocaleString('vi-VN', { hour12: false }) : '', code: r.code };
     const [st] = svStatus(r);
     const mailBox = r.email_status === 'sent' || r.email_status === 'sent_test'
-      ? `<div class="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">✔ ${r.email_status === 'sent_test' ? 'Chế độ thử: email được ghi log, chưa gửi thật' : 'Đã gửi email'} tới <b>${esc(r.email_to || '')}</b>.</div>`
+      ? `<div class="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">✔ Phiếu đã được lưu và ${r.email_status === 'sent_test' ? 'đã gửi email (chế độ thử, chỉ ghi log)' : 'đã gửi email'} đến <b>${esc(r.email_to || '')}</b>.</div>`
       : `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">${esc(st)}${r.email_error ? ': ' + esc(r.email_error) : ''}. Phiếu đã được lưu; bạn vẫn xuất PDF được. <button id="sv-resend2" class="ml-2 font-bold underline">Thử gửi lại</button></div>`;
     el.innerHTML = `<div class="flex flex-wrap items-center gap-2 mb-4">
         <button id="sv-back" class="${BTN_S}">← Danh sách</button><div class="flex-grow"></div>
@@ -785,8 +800,8 @@
       <div class="space-y-4">${mailBox}${card(`<div class="p-5 sm:p-8">${SV.lib.renderReport(tpl, SV.ans, { internal: true, meta: { ...meta, company: S.company } })}</div>`)}</div>`;
     document.getElementById('sv-back').onclick = goHome;
     if (canEdit) document.getElementById('sv-edit').onclick = () => { SV.view = 'fill'; renderFill(); window.scrollTo(0, 0); };
-    const resend = async (btn) => { btn.disabled = true; btn.textContent = 'Đang gửi…';
-      try { await api(`/api/surveys/${SV.id}/send`, { method: 'POST', body: {} }); await openSurvey(SV.id, 'result'); } catch (e) { alert(e.message); btn.disabled = false; } };
+    const resend = async () => { svBusy(true, 'Đang gửi email, vui lòng chờ…');
+      try { await api(`/api/surveys/${SV.id}/send`, { method: 'POST', body: {} }); await openSurvey(SV.id, 'result'); } catch (e) { alert(e.message); } finally { svBusy(false); } };
     document.getElementById('sv-resend').onclick = (e) => resend(e.target);
     const r2 = document.getElementById('sv-resend2'); if (r2) r2.onclick = (e) => resend(e.target);
     document.getElementById('sv-pdf-in').onclick = (e) => exportPdf(true, meta, e.target);
@@ -854,12 +869,10 @@
             <input id="cf-test_to" type="email" value="${esc(S.me.email)}" class="${inputCls} sm:w-72">
             <button id="cf-test" class="${BTN_S} whitespace-nowrap">Lưu & gửi thử</button>
           </div><div id="cf-test-res" class="mt-2 text-sm"></div>`)}
-        ${sec('3. Email phiếu khảo sát', 'Ai nhận kết quả khi Sales bấm "Hoàn tất & gửi".', `<div class="space-y-4">
-          ${field('Email nhận kết quả (To)', ta('survey_recipients', c.survey_recipients, 'kinhdoanh@redsun.vn, giamdoc@redsun.vn'), 'Nhiều email cách nhau bởi dấu phẩy. Bắt buộc có ít nhất 1 email để gửi được.')}
-          ${field('Email nhận bản copy (CC)', ta('survey_cc', c.survey_cc, 'truongphong@redsun.vn'), 'Người nhận thấy được danh sách CC.')}
-          ${field('Email nhận bản copy ẩn (BCC)', ta('survey_bcc', c.survey_bcc, 'luutru@redsun.vn'), 'Người nhận khác không thấy địa chỉ BCC. Phù hợp để lưu trữ.')}
+        ${sec('3. Email phiếu khảo sát', 'Khi bấm "Lưu & gửi email", phiếu luôn được gửi tới email của người lập phiếu. Các ô bên dưới là tùy chọn.', `<div class="space-y-4">
+          ${field('Gửi thêm bản copy (CC) – tùy chọn', ta('survey_cc', c.survey_cc, 'truongphong@redsun.vn'), 'Để trống nếu không cần. Người nhận thấy được danh sách CC.')}
+          ${field('Gửi thêm bản copy ẩn (BCC) – tùy chọn', ta('survey_bcc', c.survey_bcc, 'luutru@redsun.vn'), 'Để trống nếu không cần. Phù hợp để lưu trữ.')}
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${field('Tiền tố tiêu đề email', inp('survey_subject_prefix', c.survey_subject_prefix, 'placeholder="[Khảo sát]"'))}</div>
-          ${chk('survey_cc_sales', c.survey_cc_sales === '1', 'Gửi kèm bản sao (CC) cho Sales lập phiếu')}
           ${chk('survey_include_internal', c.survey_include_internal === '1', 'Kèm mục nội bộ (mục H – Sales đánh giá) trong email')}
         </div>`)}
         ${sec('4. Bảo mật đăng nhập', 'Áp dụng cho lần đăng nhập tiếp theo.', `<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -879,8 +892,8 @@
       v('smtp_security').onchange = () => { const s2 = v('smtp_security').value; if (s2 === 'ssl') v('smtp_port').value = 465; if (s2 === 'starttls') v('smtp_port').value = 587; };
       const collect = () => {
         const b = {};
-        for (const k of ['company_name', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_recipients', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes']) b[k] = v(k).value;
-        b.survey_cc_sales = v('survey_cc_sales').checked; b.survey_include_internal = v('survey_include_internal').checked;
+        for (const k of ['company_name', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes']) b[k] = v(k).value;
+        b.survey_include_internal = v('survey_include_internal').checked;
         if (v('smtp_pass').value) b.smtp_pass = v('smtp_pass').value;
         if (v('pass_clear') && v('pass_clear').checked) b.smtp_pass_clear = true;
         return b;

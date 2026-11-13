@@ -284,14 +284,13 @@ async function emailSurvey(env, url, row, owner) {
   const cfg = await getSettings(env);
   const tpl = getTemplate(row.template_id);
   const ans = JSON.parse(row.answers || '{}');
-  const to = parseEmails(cfg.survey_recipients);
-  const ownerEmail = owner && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(owner.email) ? owner.email : null;
+  // Người nhận chính luôn là người lập phiếu; CC/BCC (tùy chọn) do Admin cài đặt
+  const ownerEmail = owner && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(owner.email) ? owner.email.toLowerCase() : null;
+  const to = ownerEmail ? [ownerEmail] : [];
   const cc = parseEmails(cfg.survey_cc).filter((e) => !to.includes(e));
-  if (cfg.survey_cc_sales === '1' && ownerEmail && !to.includes(ownerEmail) && !cc.includes(ownerEmail)) cc.push(ownerEmail);
   const bcc = parseEmails(cfg.survey_bcc).filter((e) => !to.includes(e) && !cc.includes(e));
-  const all = [...to, ...cc, ...bcc];
   let status, error = null;
-  if (!to.length) { status = 'no_recipients'; error = 'Chưa cài đặt email nhận phiếu.'; }
+  if (!to.length) { status = 'no_recipients'; error = 'Tài khoản người lập phiếu chưa có email hợp lệ.'; }
   else {
     const internal = cfg.survey_include_internal === '1';
     const meta = { sales: owner ? owner.name : '', submitted: fmtTs(row.submitted_at), code: surveyCode(row), company: cfg.company_name };
@@ -307,8 +306,8 @@ async function emailSurvey(env, url, row, owner) {
     } catch (e) { status = /Chưa cấu hình/.test(e.message) ? 'not_configured' : 'failed'; error = String(e.message || e).slice(0, 300); }
   }
   await env.DB.prepare('UPDATE survey_responses SET email_status=?1, email_error=?2, email_to=?3 WHERE id=?4')
-    .bind(status, error, all.join(', '), row.id).run();
-  return { email_status: status, email_error: error, email_to: all.join(', ') };
+    .bind(status, error, to.join(', '), row.id).run();
+  return { email_status: status, email_error: error, email_to: to.join(', ') };
 }
 async function canViewSurvey(env, me, row) {
   return row.user_id === me.id || me.app_role === 'admin' || (me.app_role === 'manager' && (await subtreeIds(env, me.id)).has(row.user_id));
@@ -549,7 +548,7 @@ async function api(req, env, url, me) {
   /* ----- Phiếu khảo sát ----- */
   if (p === '/api/settings/survey' && method === 'GET') {          // thông tin cho mọi người dùng (không có bí mật)
     const cfg = await getSettings(env);
-    return json({ recipients: parseEmails(cfg.survey_recipients), cc: parseEmails(cfg.survey_cc), cc_sales: cfg.survey_cc_sales === '1',
+    return json({ cc: parseEmails(cfg.survey_cc), has_bcc: parseEmails(cfg.survey_bcc).length > 0,
       mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg), company: cfg.company_name });
   }
   if (p.startsWith('/api/admin/')) {
@@ -571,10 +570,9 @@ async function api(req, env, url, me) {
       else if (b.smtp_pass) upd.smtp_pass = await sealSecret(env, String(b.smtp_pass).slice(0, 500));
       if ('smtp_from_email' in b) { const v = normEmail(b.smtp_from_email); if (v && !parseEmails(v).length) return bad('Email người gửi không hợp lệ.'); upd.smtp_from_email = v; }
       if ('smtp_from_name' in b) upd.smtp_from_name = str(b.smtp_from_name, 120);
-      for (const k of ['survey_recipients', 'survey_cc', 'survey_bcc']) if (k in b) {
+      for (const k of ['survey_cc', 'survey_bcc']) if (k in b) {
         const list = parseEmails(b[k]); if (list.length > 30) return bad('Mỗi danh sách tối đa 30 email.'); upd[k] = list.join(',');
       }
-      if ('survey_cc_sales' in b) upd.survey_cc_sales = b.survey_cc_sales ? '1' : '0';
       if ('survey_include_internal' in b) upd.survey_include_internal = b.survey_include_internal ? '1' : '0';
       if ('survey_subject_prefix' in b) upd.survey_subject_prefix = str(b.survey_subject_prefix, 60);
       if ('session_days' in b) upd.session_days = String(intSetting(b.session_days, 7, 1, 90));
