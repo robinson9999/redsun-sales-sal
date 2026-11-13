@@ -128,7 +128,7 @@ async function ensureSchema(env) {
       VALUES (?1,?2,?3,'admin',0,?4,1,?5)`).bind(SEED_ADMIN.email, SEED_ADMIN.name, SEED_ADMIN.title, SEED_ADMIN.hash, now()).run();
   }
   // Nâng cấp cấu trúc cho dữ liệu đã có (bỏ qua nếu cột đã tồn tại)
-  for (const sql of ['ALTER TABLE users ADD COLUMN cb_ratio REAL', 'ALTER TABLE kpis ADD COLUMN cb REAL']) {
+  for (const sql of ['ALTER TABLE users ADD COLUMN cb_ratio REAL', 'ALTER TABLE kpis ADD COLUMN cb REAL', 'ALTER TABLE sessions ADD COLUMN last_seen INTEGER']) {
     try { await env.DB.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(String(e.message))) throw e; }
   }
   schemaReady = true;
@@ -157,12 +157,25 @@ function getCookie(req, name) {
 function cookie(token, maxAge) {
   return `rs_sid=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 }
-async function currentUser(env, req) {
+// Phiên hết hạn khi quá hạn tuyệt đối (session_days) hoặc không hoạt động quá idle_minutes (0 = tắt).
+// last_seen được cập nhật khi người dùng thao tác (mọi lời gọi API, tối đa 1 lần / 30 giây).
+async function currentUser(env, req, url) {
   const tok = getCookie(req, 'rs_sid');
   if (!tok) return null;
-  const row = await env.DB.prepare(`SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
-     WHERE s.token_hash = ?1 AND s.expires_at > ?2 AND u.active = 1`).bind(await sha256hex(tok), now()).first();
-  return row || null;
+  const th = await sha256hex(tok), t = now();
+  const row = await env.DB.prepare(`SELECT u.*, s.last_seen AS _seen FROM sessions s JOIN users u ON u.id = s.user_id
+     WHERE s.token_hash = ?1 AND s.expires_at > ?2 AND u.active = 1`).bind(th, t).first();
+  if (!row) return null;
+  const cfg = await getSettings(env);
+  const idle = intSetting(cfg.idle_minutes, 0, 0, 1440);
+  if (idle && row._seen && t - row._seen > idle * 60) {
+    await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?1').bind(th).run();
+    return null;
+  }
+  const passive = url && url.pathname === '/api/session';          // chỉ kiểm tra, không tính là thao tác
+  if (!passive && (!row._seen || t - row._seen >= 30)) await env.DB.prepare('UPDATE sessions SET last_seen=?1 WHERE token_hash=?2').bind(t, th).run();
+  delete row._seen;
+  return row;
 }
 function publicUser(u) {
   const { pw_hash, failed, locked_until, created_at, ...rest } = u;
@@ -199,17 +212,22 @@ const SETTING_DEFAULTS = {
   smtp_from_email: '', smtp_from_name: 'Redsun Sales',
   survey_recipients: '', survey_cc: '', survey_bcc: '', survey_cc_sales: '1', survey_include_internal: '1',
   survey_subject_prefix: '[Khảo sát]',
-  session_days: '7', max_fails: '8', lock_minutes: '15'
+  session_days: '7', max_fails: '8', lock_minutes: '15',
+  idle_minutes: '0', login_notify: '0', login_notify_bcc: ''
 };
-async function getSettings(env) {
+let settingsCache = null, settingsAt = 0;
+async function getSettings(env, fresh) {
+  if (!fresh && settingsCache && Date.now() - settingsAt < 15000) return { ...settingsCache };
   const r = await env.DB.prepare('SELECT key, value FROM settings').all();
   const out = { ...SETTING_DEFAULTS };
   for (const x of r.results) if (x.key in SETTING_DEFAULTS) out[x.key] = x.value ?? '';
-  return out;
+  settingsCache = out; settingsAt = Date.now();
+  return { ...out };
 }
 async function setSettings(env, obj) {
   const stmts = Object.entries(obj).map(([k, v]) => env.DB.prepare('INSERT INTO settings (key,value) VALUES (?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(k, String(v)));
   if (stmts.length) await env.DB.batch(stmts);
+  settingsCache = null;
 }
 const intSetting = (v, def, min, max) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
 const parseEmails = (s) => [...new Set(String(s || '').split(/[\s,;]+/).map(normEmail).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)))];
@@ -280,6 +298,27 @@ function smtpErrVi(e, opts) {
 const surveyCode = (r) => `KS-${new Date(r.created_at * 1000).getFullYear()}-${String(r.id).padStart(4, '0')}`;
 const fmtTs = (ts) => ts ? new Date(ts * 1000).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }) : '';
 
+async function notifyLogin(env, cfg, u, req) {
+  if (!mailReady(env, cfg)) return;
+  const to = parseEmails(u.email); if (!to.length) return;
+  const bcc = parseEmails(cfg.login_notify_bcc).filter((e) => !to.includes(e));
+  const cf = req.cf || {};
+  const ip = req.headers.get('cf-connecting-ip') || '';
+  const where = [cf.city, cf.region, cf.country].filter(Boolean).join(', ');
+  const ua = (req.headers.get('user-agent') || '').slice(0, 300);
+  const when = fmtTs(now());
+  const e = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const host = new URL(req.url).host;
+  const rows = [['Tài khoản', `${u.name} (${u.email})`], ['Thời gian', when], ['Địa chỉ IP', ip || '—'], ['Vị trí (ước tính)', where || '—'], ['Thiết bị / trình duyệt', ua || '—']];
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#0f172a;max-width:560px">
+    <p style="margin:0 0 12px"><b>${e(cfg.company_name)}</b> – thông báo đăng nhập</p>
+    <p style="margin:0 0 12px">Tài khoản của bạn vừa đăng nhập vào <b>${e(host)}</b>.</p>
+    <table style="border-collapse:collapse;width:100%;font-size:13px">${rows.map(([k, v]) => `<tr><td style="padding:6px 10px;border:1px solid #e2e8f0;background:#f8fafc;width:38%;color:#475569">${e(k)}</td><td style="padding:6px 10px;border:1px solid #e2e8f0">${e(v)}</td></tr>`).join('')}</table>
+    <p style="margin:14px 0 0;color:#b91c1c"><b>Nếu không phải bạn đăng nhập</b>, hãy đổi mật khẩu ngay và báo Admin.</p></div>`;
+  const text = `Tài khoản của bạn vừa đăng nhập vào ${host}.\n` + rows.map(([k, v]) => `- ${k}: ${v}`).join('\n') + '\nNếu không phải bạn, hãy đổi mật khẩu ngay và báo Admin.';
+  await sendMail(env, cfg, { to, bcc, subject: `[Đăng nhập] ${u.name} – ${when}`, html, text });
+}
+
 async function emailSurvey(env, url, row, owner) {
   const cfg = await getSettings(env);
   const tpl = getTemplate(row.template_id);
@@ -314,7 +353,7 @@ async function canViewSurvey(env, me, row) {
 }
 
 /* ---------------------------- API ---------------------------- */
-async function api(req, env, url, me) {
+async function api(req, env, url, me, ctx) {
   const p = url.pathname, method = req.method;
   let body = {};
   if (method !== 'GET' && method !== 'HEAD') {
@@ -344,9 +383,10 @@ async function api(req, env, url, me) {
     const tok = b64(crypto.getRandomValues(new Uint8Array(32))).replace(/[+/=]/g, (c) => ({ '+': '-', '/': '_', '=': '' }[c]));
     await env.DB.batch([
       env.DB.prepare('UPDATE users SET failed=0, locked_until=0 WHERE id=?1').bind(u.id),
-      env.DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at) VALUES (?1,?2,?3)').bind(await sha256hex(tok), u.id, now() + SESSION_DAYS * 86400),
+      env.DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,last_seen) VALUES (?1,?2,?3,?4)').bind(await sha256hex(tok), u.id, now() + SESSION_DAYS * 86400, now()),
       env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?1').bind(now())
     ]);
+    if (cfg.login_notify === '1' && ctx) ctx.waitUntil(notifyLogin(env, cfg, u, req).catch((e) => console.error('login notify', e)));
     return json({ ok: true, must_change: !!u.must_change }, 200, { 'set-cookie': cookie(tok, SESSION_DAYS * 86400) });
   }
   if (p === '/api/logout' && method === 'POST') {
@@ -356,12 +396,14 @@ async function api(req, env, url, me) {
   }
 
   if (!me) return bad('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', 401);
+  if (p === '/api/ping' && method === 'POST') return json({ ok: true });            // ghi nhận người dùng còn thao tác
+  if (p === '/api/session' && method === 'GET') return json({ ok: true });         // kiểm tra phiên còn hiệu lực
 
   /* ----- Bản thân ----- */
   if (p === '/api/me' && method === 'GET') {
     const mgr = me.manager_id ? await env.DB.prepare('SELECT id,name,email FROM users WHERE id=?1').bind(me.manager_id).first() : null;
     const cfg = await getSettings(env);
-    return json({ user: publicUser(me), manager: mgr, titles: TITLES, company: cfg.company_name });
+    return json({ user: publicUser(me), manager: mgr, titles: TITLES, company: cfg.company_name, idle_minutes: intSetting(cfg.idle_minutes, 0, 0, 1440) });
   }
   if (p === '/api/me/password' && method === 'POST') {
     const oldPw = String(body.old_password || ''), newPw = String(body.new_password || '');
@@ -578,6 +620,9 @@ async function api(req, env, url, me) {
       if ('session_days' in b) upd.session_days = String(intSetting(b.session_days, 7, 1, 90));
       if ('max_fails' in b) upd.max_fails = String(intSetting(b.max_fails, 8, 3, 50));
       if ('lock_minutes' in b) upd.lock_minutes = String(intSetting(b.lock_minutes, 15, 1, 1440));
+      if ('idle_minutes' in b) { let v = intSetting(b.idle_minutes, 0, 0, 1440); if (v > 0 && v < 2) v = 2; upd.idle_minutes = String(v); }
+      if ('login_notify' in b) upd.login_notify = b.login_notify ? '1' : '0';
+      if ('login_notify_bcc' in b) { const v = normEmail(b.login_notify_bcc); if (v && parseEmails(v).length !== 1) return bad('Email nhận bản BCC thông báo đăng nhập không hợp lệ (chỉ 1 email).'); upd.login_notify_bcc = v; }
       await setSettings(env, upd);
       return json({ ok: true, saved: Object.keys(upd).length });
     }
@@ -692,12 +737,12 @@ function withHeaders(res, extra = {}) {
 }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     try {
       await ensureSchema(env);
-      const me = await currentUser(env, req);
-      if (url.pathname.startsWith('/api/')) return withHeaders(await api(req, env, url, me));
+      const me = await currentUser(env, req, url);
+      if (url.pathname.startsWith('/api/')) return withHeaders(await api(req, env, url, me, ctx));
 
       const isLogin = url.pathname === '/login' || url.pathname === '/login.html';
       if (isLogin) {

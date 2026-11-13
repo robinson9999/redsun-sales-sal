@@ -75,6 +75,10 @@ Gồm 4 phần, bấm **Lưu cài đặt** ở cuối trang để lưu.
 - **Tiền tố tiêu đề**, ví dụ `[Khảo sát]`; tùy chọn **kèm mục nội bộ** (Sales đánh giá) trong email.
 - Phiếu hoàn tất khi chưa cấu hình SMTP vẫn được lưu; sau khi cấu hình xong, mở phiếu và bấm **Gửi lại email**.
 
-**4. Bảo mật đăng nhập:** thời hạn phiên đăng nhập (ngày), số lần nhập sai trước khi tạm khóa, thời gian tạm khóa (phút).
+**4. Bảo mật đăng nhập:**
+- **Tự đăng xuất khi không thao tác (phút)**: người dùng không bấm, gõ, cuộn hay rê chuột quá số phút này thì phiên hết hạn. Trước 1 phút sẽ có cảnh báo; chỉ cần thao tác là tiếp tục. Nhập 0 để tắt; tối thiểu 2 phút. Áp dụng ngay, kể cả với người đang đăng nhập.
+- **Thời hạn tối đa của phiên (ngày)**: dù vẫn thao tác, sau số ngày này phải đăng nhập lại.
+- Số lần nhập sai trước khi tạm khóa, thời gian tạm khóa (phút).
+- **Gửi email thông báo mỗi lần đăng nhập** tới email chủ tài khoản (thời gian, IP, vị trí ước tính, thiết bị), kèm tùy chọn gửi thêm **1 bản BCC** tới một email (ví dụ hộp thư bảo mật). Cần cấu hình SMTP (mục 2) trước.
 
 *(Tùy chọn, tăng bảo mật)* Cloudflare → Workers & Pages → redsun-quy-che → Settings → Variables and Secrets → thêm **Secret** `SETTINGS_KEY` (chuỗi ngẫu nhiên dài) để mã hóa mật khẩu SMTP bằng khóa riêng. Sau khi thêm, vào Cài đặt nhập lại mật khẩu SMTP một lần.

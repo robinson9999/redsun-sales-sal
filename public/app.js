@@ -21,7 +21,7 @@
     if (opts.body !== undefined) { o.headers['content-type'] = 'application/json'; o.body = JSON.stringify(opts.body); }
     const r = await fetch(path, o);
     const d = await r.json().catch(() => ({}));
-    if (r.status === 401 && path !== '/api/me/password') { location.replace('/login'); throw new Error('Hết phiên đăng nhập.'); }
+    if (r.status === 401 && path !== '/api/me/password') { location.replace('/login?het-han=1'); throw new Error('Hết phiên đăng nhập.'); }
     if (!r.ok) {
       if (r.status === 403 && /đổi mật khẩu/.test(d.error || '')) openPwModal(true);
       throw new Error(d.error || 'Có lỗi xảy ra, vui lòng thử lại.');
@@ -73,10 +73,53 @@
   };
 
   /* ------------------------------ Khởi động ------------------------------ */
+  /* --------------- Tự đăng xuất khi không thao tác ---------------
+     Ghi thời điểm thao tác cuối (dùng chung giữa các tab qua localStorage), báo máy chủ tối đa 1 lần/phút,
+     cảnh báo trước 1 phút rồi đăng xuất. Máy chủ cũng tự hủy phiên nếu quá hạn. */
+  let idleTimer = null;
+  function startIdleWatch(minutes) {
+    clearInterval(idleTimer);
+    if (!(minutes > 0)) return;
+    const LIMIT = minutes * 60000, KEY = 'rs_last_act';
+    const getAct = () => { try { return +localStorage.getItem(KEY) || 0; } catch { return 0; } };
+    let mem = Date.now(), lastPing = Date.now(), lastWrite = 0;
+    const lastAct = () => getAct() || mem;          // ưu tiên giá trị dùng chung giữa các tab
+    const mark = () => { mem = Date.now(); if (mem - lastWrite > 5000) { lastWrite = mem; try { localStorage.setItem(KEY, String(mem)); } catch { /* bỏ qua */ } } hideWarn(); };
+    const warnEl = () => document.getElementById('idle-warn');
+    function hideWarn() { const w = warnEl(); if (w) w.remove(); }
+    function showWarn(sec) {
+      let w = warnEl();
+      if (!w) {
+        w = document.createElement('div'); w.id = 'idle-warn'; w.className = 'fixed inset-x-0 top-3 z-[110] flex justify-center px-3'; document.body.appendChild(w);
+        w.innerHTML = `<div class="flex items-center gap-3 px-5 py-3 rounded-2xl bg-amber-500 text-slate-900 text-sm font-semibold shadow-xl">Bạn sẽ bị đăng xuất sau <span data-sec></span> giây do không thao tác. <button class="px-3 py-1 rounded-lg bg-slate-900 text-white">Tiếp tục làm việc</button></div>`;
+        w.querySelector('button').onclick = () => { lastWrite = 0; mark(); ping(true); };
+      }
+      w.querySelector('[data-sec]').textContent = sec;
+    }
+    async function ping(force) {
+      if (!force && lastAct() <= lastPing) return;
+      lastPing = Date.now();
+      try { await fetch('/api/ping', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', credentials: 'same-origin' })
+        .then((r) => { if (r.status === 401) location.replace('/login?het-han=1'); }); } catch { /* mạng lỗi: thử lần sau */ }
+    }
+    ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove', 'scroll'].forEach((ev) => window.addEventListener(ev, mark, { passive: true }));
+    mark();
+    idleTimer = setInterval(async () => {
+      const left = LIMIT - (Date.now() - lastAct());
+      if (left <= 0) {
+        clearInterval(idleTimer);
+        try { await fetch('/api/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', credentials: 'same-origin' }); } catch { /* bỏ qua */ }
+        location.replace('/login?het-han=1'); return;
+      }
+      if (left <= 60000) showWarn(Math.ceil(left / 1000)); else hideWarn();
+      if (Date.now() - lastPing >= 60000) ping(false);
+    }, 1000);
+  }
+
   window.appInit = async function () {
     try {
       const d = await api('/api/me');
-      S.me = d.user; S.manager = d.manager; S.titles = d.titles; S.company = d.company;
+      S.me = d.user; S.manager = d.manager; S.titles = d.titles; S.company = d.company; startIdleWatch(d.idle_minutes);
       document.getElementById('me-name').textContent = S.me.name;
       document.getElementById('me-role').textContent = `${ROLE_LABEL[S.me.app_role]}${S.me.title !== 'other' ? ' • ' + titleName(S.me.title) : ''}`;
       const canAssign = ['admin', 'manager'].includes(S.me.app_role);
@@ -873,12 +916,18 @@
           ${field('Gửi thêm bản copy (CC) – tùy chọn', ta('survey_cc', c.survey_cc, 'truongphong@redsun.vn'), 'Để trống nếu không cần. Người nhận thấy được danh sách CC.')}
           ${field('Gửi thêm bản copy ẩn (BCC) – tùy chọn', ta('survey_bcc', c.survey_bcc, 'luutru@redsun.vn'), 'Để trống nếu không cần. Phù hợp để lưu trữ.')}
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${field('Tiền tố tiêu đề email', inp('survey_subject_prefix', c.survey_subject_prefix, 'placeholder="[Khảo sát]"'))}</div>
-          ${chk('survey_include_internal', c.survey_include_internal === '1', 'Kèm mục nội bộ (mục H – Sales đánh giá) trong email')}
+          ${chk('survey_include_internal', c.survey_include_internal === '1', 'Kèm mục nội bộ (Sales đánh giá) trong email')}
         </div>`)}
-        ${sec('4. Bảo mật đăng nhập', 'Áp dụng cho lần đăng nhập tiếp theo.', `<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          ${field('Thời hạn phiên đăng nhập (ngày)', inp('session_days', c.session_days, 'type="number" min="1" max="90"'), '1–90 ngày')}
+        ${sec('4. Bảo mật đăng nhập', 'Thời hạn phiên áp dụng cho lần đăng nhập tiếp theo; thời gian không hoạt động áp dụng ngay.', `<div class="space-y-5"><div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          ${field('Tự đăng xuất khi không thao tác (phút)', inp('idle_minutes', c.idle_minutes, 'type="number" min="0" max="1440"'), 'Hết hạn phiên sau số phút người dùng không thao tác. 0 = tắt; tối thiểu 2, tối đa 1440 phút. Người dùng được cảnh báo trước 1 phút.')}
+          ${field('Thời hạn tối đa của phiên (ngày)', inp('session_days', c.session_days, 'type="number" min="1" max="90"'), 'Dù vẫn thao tác, sau số ngày này phải đăng nhập lại. 1–90 ngày.')}
           ${field('Số lần nhập sai trước khi tạm khóa', inp('max_fails', c.max_fails, 'type="number" min="3" max="50"'), '3–50 lần')}
-          ${field('Thời gian tạm khóa (phút)', inp('lock_minutes', c.lock_minutes, 'type="number" min="1" max="1440"'), '1–1440 phút')}</div>`)}
+          ${field('Thời gian tạm khóa (phút)', inp('lock_minutes', c.lock_minutes, 'type="number" min="1" max="1440"'), '1–1440 phút')}</div>
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            ${chk('login_notify', c.login_notify === '1', '<b>Gửi email thông báo mỗi lần đăng nhập</b> tới email của chủ tài khoản (thời gian, IP, vị trí ước tính, thiết bị)')}
+            ${field('Gửi thêm 1 bản thông báo (BCC) tới – tùy chọn', inp('login_notify_bcc', c.login_notify_bcc, 'type="email" placeholder="baomat@redsun.vn"'), 'Chỉ 1 email. Người dùng không thấy địa chỉ này. Để trống nếu không cần.')}
+            ${d.mail_mode ? '' : '<p class="text-xs text-amber-800">⚠ Chưa cấu hình máy chủ gửi email (mục 2) nên chưa gửi được thông báo.</p>'}
+          </div></div>`)}
         ${errBox('cf-err')}
         <div class="sticky bottom-4 z-30 flex items-center justify-end gap-3 p-3 rounded-2xl bg-white/95 backdrop-blur border border-slate-200 shadow-lg">
           <span id="cf-ok" class="text-sm text-emerald-700"></span><button id="cf-save" class="${BTN_P}">Lưu cài đặt</button></div>
@@ -892,8 +941,8 @@
       v('smtp_security').onchange = () => { const s2 = v('smtp_security').value; if (s2 === 'ssl') v('smtp_port').value = 465; if (s2 === 'starttls') v('smtp_port').value = 587; };
       const collect = () => {
         const b = {};
-        for (const k of ['company_name', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes']) b[k] = v(k).value;
-        b.survey_include_internal = v('survey_include_internal').checked;
+        for (const k of ['company_name', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes', 'idle_minutes', 'login_notify_bcc']) b[k] = v(k).value;
+        b.survey_include_internal = v('survey_include_internal').checked; b.login_notify = v('login_notify').checked;
         if (v('smtp_pass').value) b.smtp_pass = v('smtp_pass').value;
         if (v('pass_clear') && v('pass_clear').checked) b.smtp_pass_clear = true;
         return b;

@@ -51,6 +51,7 @@
 <script>
 (function(){
   var $ = function(id){ return document.getElementById(id); };
+  if (/[?&]het-han=1/.test(location.search)) { var e0=$('err'); e0.textContent='Phiên đăng nhập đã hết hạn (do không thao tác hoặc quá thời hạn). Vui lòng đăng nhập lại.'; e0.style.display='block'; e0.style.background='#FFFBEB'; e0.style.color='#92400E'; history.replaceState(null,'','/login'); }
   $('toggle').onclick = function(){ var p=$('p'); var s=p.type==='password'; p.type=s?'text':'password'; this.textContent=s?'Ẩn':'Hiện'; };
   $('f').addEventListener('submit', async function(ev){
     ev.preventDefault();
