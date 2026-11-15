@@ -38,23 +38,38 @@
 <body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen flex flex-col">
 
 <header class="bg-gradient-to-r from-redsun-950 via-slate-900 to-redsun-900 text-white shadow-xl sticky top-0 z-50">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-20 gap-3">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16 md:h-20 gap-3">
     <div class="flex items-center gap-4 min-w-0">
-      <div class="rs-logo h-11 sm:h-14 shrink-0" role="img" aria-label="Redsun - For Growth Together"></div>
+      <div class="rs-logo h-9 sm:h-11 md:h-14 shrink-0" role="img" aria-label="Redsun - For Growth Together"></div>
       <div class="h-10 w-px bg-slate-700/60 hidden md:block"></div>
       <div class="min-w-0 hidden sm:block">
         <span class="text-sm lg:text-base font-extrabold tracking-wide uppercase block truncate" data-cfg="company"></span>
         <p class="text-xs text-slate-300">Quy chế Lương, Thưởng & KPI Khối Kinh Doanh</p>
       </div>
     </div>
-    <div class="no-print shrink-0 flex items-center gap-2">
-      <div class="hidden md:block text-right leading-tight mr-1"><div id="me-name" class="text-sm font-bold"></div><div id="me-role" class="text-[11px] text-slate-300"></div></div>
-      <button onclick="openPwModal()" class="px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-white/10 hover:bg-white/20 border border-white/20" title="Đổi mật khẩu">🔑<span class="hidden lg:inline"> Đổi mật khẩu</span></button>
-      <button onclick="try{window.print()}catch(e){}" class="hidden sm:inline-block px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-white/10 hover:bg-white/20 border border-white/20" title="In / PDF">🖨️</button>
-      <button onclick="rsLogout()" class="px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-white/10 hover:bg-white/20 border border-white/20">Đăng xuất</button>
+    <div class="no-print shrink-0 hidden md:flex items-center gap-2">
+      <div class="text-right leading-tight mr-1"><div id="me-name" class="text-sm font-bold"></div><div id="me-role" class="text-[11px] text-slate-300"></div></div>
+      <button onclick="openPwModal()" class="px-3 py-2 text-sm font-semibold rounded-xl bg-white/10 hover:bg-white/20 border border-white/20" title="Đổi mật khẩu">🔑<span class="hidden lg:inline"> Đổi mật khẩu</span></button>
+      <button onclick="try{window.print()}catch(e){}" class="px-3 py-2 text-sm font-semibold rounded-xl bg-white/10 hover:bg-white/20 border border-white/20" title="In / PDF">🖨️</button>
+      <button onclick="rsLogout()" class="px-3 py-2 text-sm font-semibold rounded-xl bg-white/10 hover:bg-white/20 border border-white/20">Đăng xuất</button>
+    </div>
+    <!-- Điện thoại: tên tab đang mở + nút ☰ mở menu -->
+    <div class="no-print md:hidden flex items-center gap-2 shrink-0">
+      <span id="m-tab-name" class="text-sm font-bold text-gold-400 max-w-[42vw] truncate"></span>
+      <button id="m-menu-btn" onclick="toggleMobileMenu()" aria-label="Mở menu" aria-expanded="false" aria-controls="m-menu" class="w-11 h-11 flex flex-col items-center justify-center gap-[5px] rounded-xl bg-white/10 hover:bg-white/20 border border-white/20">
+        <span class="block w-5 h-0.5 bg-white rounded"></span><span class="block w-5 h-0.5 bg-white rounded"></span><span class="block w-5 h-0.5 bg-white rounded"></span>
+      </button>
     </div>
   </div>
-  <div class="no-print bg-redsun-900/60 border-t border-redsun-700/50">
+  <div id="m-menu" class="no-print md:hidden hidden border-t border-redsun-700/50 bg-slate-900/95 max-h-[calc(100vh-4rem)] overflow-y-auto">
+    <div class="px-4 py-3 border-b border-white/10"><div id="m-me-name" class="text-sm font-bold"></div><div id="m-me-role" class="text-[11px] text-slate-300"></div></div>
+    <div id="m-tabs" class="py-1"></div>
+    <div class="px-4 py-3 border-t border-white/10 flex gap-2">
+      <button onclick="closeMobileMenu();openPwModal()" class="flex-1 px-3 py-2.5 text-sm font-semibold rounded-xl bg-white/10 hover:bg-white/20 border border-white/20">🔑 Đổi mật khẩu</button>
+      <button onclick="rsLogout()" class="flex-1 px-3 py-2.5 text-sm font-semibold rounded-xl bg-white/10 hover:bg-white/20 border border-white/20">Đăng xuất</button>
+    </div>
+  </div>
+  <div class="no-print bg-redsun-900/60 border-t border-redsun-700/50 hidden md:block">
     <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex gap-5 sm:gap-7 overflow-x-auto whitespace-nowrap">
       <button id="tab-btn-policy" onclick="switchTab('policy')" class="py-3 px-1 border-b-2 font-semibold text-sm">Quy chế</button>
       <button id="tab-btn-calc" onclick="switchTab('calc')" class="py-3 px-1 border-b-2 font-semibold text-sm">Bảng tính thu nhập</button>
@@ -796,9 +811,27 @@ function switchTab(t){
     b.className = (k===t?on:off) + (hidden?' hidden':'');
   }
   try { history.replaceState(null,'', '#'+TABS[t]); } catch(e){}
+  const mn = $('m-tab-name'); if (mn) mn.textContent = $('tab-btn-'+t).textContent;
+  closeMobileMenu();
   if (window.onTabShown) window.onTabShown(t);
 }
-function tabFromHash(){ const h = location.hash.slice(1); return Object.keys(TABS).find(k=>TABS[k]===h) || 'policy'; }
+/* ---------- Menu trên điện thoại (nút ☰) ---------- */
+function closeMobileMenu(){
+  const m = $('m-menu'), b = $('m-menu-btn'); if (!m) return;
+  m.classList.add('hidden'); if (b) b.setAttribute('aria-expanded','false');
+}
+function toggleMobileMenu(){
+  const m = $('m-menu'), b = $('m-menu-btn');
+  if (!m.classList.contains('hidden')) return closeMobileMenu();
+  const cur = location.hash.slice(1);
+  $('m-tabs').innerHTML = Object.keys(TABS).filter(k => !$('tab-btn-'+k).classList.contains('hidden')).map(k =>
+    `<button onclick="switchTab('${k}')" class="w-full text-left px-4 py-3 text-[15px] font-semibold ${TABS[k]===cur?'text-gold-400 bg-white/5':'text-slate-200 hover:bg-white/5'}">${$('tab-btn-'+k).textContent}</button>`).join('');
+  $('m-me-name').textContent = $('me-name').textContent; $('m-me-role').textContent = $('me-role').textContent;
+  m.classList.remove('hidden'); b.setAttribute('aria-expanded','true');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobileMenu(); });
+window.addEventListener('resize', () => { if (window.innerWidth >= 768) closeMobileMenu(); });
+function tabFromHash(){ const h = location.hash.slice(1); return Object.keys(TABS).find(k=>TABS[k]===h) || 'kpi'; }   // mặc định: KPI của bạn
 
 /* ---------- Phiên đăng nhập (khi mở qua bản bảo mật) ---------- */
 async function rsLogout(){ try{ await fetch('/api/logout',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}); }catch(e){} location.replace('/login'); }
@@ -815,7 +848,7 @@ function rsInit(){
   setRole('sales');
   const h0 = location.hash;                         // giữ tab trong đường dẫn (vd #proposal) cho appInit
   switchTab('policy');
-  if (h0) { try { history.replaceState(null, '', h0); } catch(e){} }
+  try { history.replaceState(null, '', h0 || location.pathname + location.search); } catch(e){}
   if (window.appInit) window.appInit(); else switchTab(tabFromHash());
 }
 if (document.readyState === 'complete') rsInit();

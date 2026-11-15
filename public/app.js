@@ -475,6 +475,8 @@
       <form id="uf" class="px-6 py-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="sm:col-span-2">${field('Email đăng nhập', `<input id="uf-email" type="email" value="${esc(u.email)}" class="${inputCls}" required>`)}</div>
         <div class="sm:col-span-2">${field('Họ tên', `<input id="uf-name" value="${esc(u.name)}" class="${inputCls}" required>`)}</div>
+        ${field('Số điện thoại', `<input id="uf-phone" type="tel" value="${esc(u.phone || '')}" placeholder="09xx xxx xxx" class="${inputCls}">`, 'Hiện trên proposal và chữ ký email gửi khách.')}
+        ${field('Email liên hệ', `<input id="uf-cemail" type="email" value="${esc(u.contact_email || '')}" placeholder="Để trống: dùng email đăng nhập" class="${inputCls}">`, 'Email khách liên hệ, nhận CC khi gửi proposal.')}
         ${field('Chức danh', `<select id="uf-title" class="${inputCls}">${Object.entries(S.titles).map(([k, v]) => `<option value="${k}" ${u.title === k ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</select>`)}
         ${field('Quyền trên hệ thống', `<select id="uf-role" class="${inputCls}">${Object.entries(ROLE_LABEL).map(([k, v]) => `<option value="${k}" ${u.app_role === k ? 'selected' : ''}>${v}</option>`).join('')}</select>`, 'Admin: toàn quyền • Quản lý: xem & giao KPI cho cấp dưới • Nhân viên: chỉ xem của mình')}
         ${field('Quản lý trực tiếp', `<select id="uf-mgr" class="${inputCls}"><option value="">— Không có —</option>${mgrOpts}</select>`)}
@@ -507,7 +509,8 @@
       e.preventDefault();
       const body = { email: document.getElementById('uf-email').value, name: document.getElementById('uf-name').value, title: tSel.value, app_role: rSel.value,
         manager_id: document.getElementById('uf-mgr').value || null, salary_w: parseVND(wIn.value), start_date: document.getElementById('uf-start').value || null,
-        cb_ratio: cbIn.value === '' ? null : Math.min(100, Math.max(0, +cbIn.value)) / 100 };
+        cb_ratio: cbIn.value === '' ? null : Math.min(100, Math.max(0, +cbIn.value)) / 100,
+        phone: document.getElementById('uf-phone').value.trim(), contact_email: document.getElementById('uf-cemail').value.trim() };
       if (!isNew) body.active = document.getElementById('uf-active').value === '1';
       try {
         if (isNew) {
@@ -890,7 +893,14 @@
         : d.mail_mode === 'log' ? `<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800">Chế độ thử (chỉ ghi log)</span>`
         : `<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800">Chưa cấu hình</span>`;
       el.innerHTML = pageHead('Cài đặt hệ thống', 'Chỉ Admin xem và thay đổi được các cài đặt này.') + `<div class="space-y-6 max-w-4xl">
-        ${sec('1. Thông tin chung', 'Hiển thị trên email và file PDF phiếu khảo sát.', `<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${field('Tên công ty', inp('company_name', c.company_name))}</div>`)}
+        ${sec('1. Thông tin công ty', 'Hiển thị trên email, PDF phiếu khảo sát, slide cuối của proposal và chữ ký email gửi proposal. Tên người gửi email proposal: [Tên nhân viên] - [Tên viết tắt].', `<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="sm:col-span-2">${field('Tên công ty (đầy đủ)', inp('company_name', c.company_name))}</div>
+          ${field('Tên viết tắt', inp('company_short', c.company_short, 'placeholder="Redsun"'))}
+          ${field('Website', inp('company_website', c.company_website, 'placeholder="redsun.vn"'))}
+          <div class="sm:col-span-2">${field('Địa chỉ', inp('company_address', c.company_address))}</div>
+          ${field('Điện thoại', inp('company_phone', c.company_phone))}
+          ${field('Hotline', inp('company_hotline', c.company_hotline))}
+          ${field('Email công ty', inp('company_email', c.company_email, 'type="email"'))}</div>`)}
         ${sec(`2. Máy chủ gửi email (SMTP) ${status}`, 'Dùng để gửi email phiếu khảo sát. Cloudflare chặn cổng 25 – dùng cổng 465 (SSL/TLS) hoặc 587 (STARTTLS).', `
           <div class="flex flex-wrap items-center gap-2 mb-4"><span class="text-xs text-slate-500">Điền nhanh:</span>${Object.entries(SMTP_PRESETS).map(([k, v]) => `<button data-preset="${k}" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold">${v.label}</button>`).join('')}</div>
           <div id="cf-hint" class="hidden mb-4 p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900"></div>
@@ -943,7 +953,7 @@
       v('smtp_security').onchange = () => { const s2 = v('smtp_security').value; if (s2 === 'ssl') v('smtp_port').value = 465; if (s2 === 'starttls') v('smtp_port').value = 587; };
       const collect = () => {
         const b = {};
-        for (const k of ['company_name', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes', 'idle_minutes', 'login_notify_bcc', 'login_notify_subject']) b[k] = v(k).value;
+        for (const k of ['company_name', 'company_short', 'company_website', 'company_address', 'company_phone', 'company_hotline', 'company_email', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes', 'idle_minutes', 'login_notify_bcc', 'login_notify_subject']) b[k] = v(k).value;
         b.survey_include_internal = v('survey_include_internal').checked; b.login_notify = v('login_notify').checked;
         if (v('smtp_pass').value) b.smtp_pass = v('smtp_pass').value;
         if (v('pass_clear') && v('pass_clear').checked) b.smtp_pass_clear = true;
@@ -975,14 +985,10 @@
      TRANG: PROPOSAL – xem/trình chiếu (có ghi chú), xuất PDF và gửi khách (không ghi chú)
      ========================================================================= */
   const PR = { data: null, q: '' };
-  const PR_ME_KEY = 'rs_prop_me';
   const prEl = () => document.getElementById('tab-proposal');
   const fmtDT = (ts) => ts ? new Date(ts * 1000).toLocaleString('vi-VN', { hour12: false, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-  function prMe() {
-    let saved = {}; try { saved = JSON.parse(localStorage.getItem(PR_ME_KEY) || '{}'); } catch (e) { /* bỏ qua */ }
-    const t = S.me.title !== 'other' ? titleName(S.me.title).replace(/ \(.+\)$/, '') : 'Chuyên viên tư vấn';
-    return { tv: saved.tv || S.me.name, cv: saved.cv || t, sdt: saved.sdt || '', email: saved.email || S.me.email };
-  }
+  // Thông tin nhân viên (hồ sơ trong tab Nhân viên) + công ty (tab Cài đặt) – máy chủ trả về sẵn
+  const prMe = () => ({ ...((PR.data && PR.data.fields) || {}) });
   const prQuery = (f) => new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
   const shareStatus = (s) => s.revoked ? ['Đã thu hồi', 'bg-slate-200 text-slate-600'] : s.expired ? ['Hết hạn', 'bg-slate-200 text-slate-600']
     : s.views ? ['Khách đã xem', 'bg-emerald-100 text-emerald-800'] : (STATUS[s.email_status] || ['Đã tạo link', 'bg-blue-100 text-blue-800']);
@@ -1003,15 +1009,9 @@
             <button data-pdf="${p.id}" class="${BTN_S}">⬇ Xuất PDF</button>
             <button data-send="${p.id}" class="${BTN_P}">✉ Gửi khách hàng</button>
           </div></div>`)).join('');
-      const meCard = card(`<div class="p-5"><div class="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-3">
-          <div><h3 class="font-bold text-slate-900">Thông tin của bạn trên slide cuối</h3><p class="text-xs text-slate-500">Hiện ở mục "Chuyên viên tư vấn" khi trình chiếu, xuất PDF và gửi khách. Lưu trên trình duyệt này.</p></div>
-          <span id="pr-me-saved" class="text-xs text-emerald-700 font-semibold hidden">Đã lưu</span></div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            ${field('Họ tên', `<input data-me="tv" value="${esc(me.tv)}" class="${inputCls}">`)}
-            ${field('Chức danh', `<input data-me="cv" value="${esc(me.cv)}" class="${inputCls}">`)}
-            ${field('Số điện thoại', `<input data-me="sdt" value="${esc(me.sdt)}" placeholder="09xx xxx xxx" class="${inputCls}">`)}
-            ${field('Email', `<input data-me="email" value="${esc(me.email)}" class="${inputCls}">`)}
-          </div></div>`);
+      const meCard = `<div class="p-3 rounded-xl ${me.sdt ? 'bg-slate-50 border border-slate-200 text-slate-600' : 'bg-amber-50 border border-amber-200 text-amber-900'} text-sm">
+          Slide cuối và chữ ký email dùng thông tin trong hồ sơ của bạn: <b>${esc([me.tv, me.cv, me.sdt, me.email].filter(Boolean).join(' • '))}</b>.
+          ${me.sdt ? '' : '<b>Hồ sơ chưa có số điện thoại.</b> '}${S.me.app_role === 'admin' ? 'Sửa ở tab Nhân viên.' : 'Cần sửa, vui lòng báo Admin cập nhật ở tab Nhân viên.'}</div>`;
       el.innerHTML = pageHead('Proposal', 'Trình chiếu có ghi chú cho Sales. Bản PDF và bản gửi khách luôn bỏ phần ghi chú.')
         + `<div class="space-y-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${cards}</div>${meCard}${mailNote}
           ${card(`<div class="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1021,11 +1021,6 @@
               <th class="py-2.5 px-3 text-left">Khách hàng</th><th class="py-2.5 px-3 text-left">Proposal</th>${many ? '<th class="py-2.5 px-3 text-left">Sales</th>' : ''}
               <th class="py-2.5 px-3 text-left">Trạng thái</th><th class="py-2.5 px-3 text-left">Lượt xem</th><th class="py-2.5 px-3 text-left">Hiệu lực đến</th><th></th></tr></thead>
               <tbody id="pr-rows" class="divide-y divide-slate-100"></tbody></table></div>`)}</div>`;
-      el.querySelectorAll('[data-me]').forEach((i) => i.onchange = () => {
-        const v = {}; el.querySelectorAll('[data-me]').forEach((x) => { v[x.dataset.me] = x.value.trim(); });
-        try { localStorage.setItem(PR_ME_KEY, JSON.stringify(v)); } catch (e) { /* bỏ qua */ }
-        const s = document.getElementById('pr-me-saved'); s.classList.remove('hidden'); setTimeout(() => s.classList.add('hidden'), 1500);
-      });
       el.querySelectorAll('[data-present]').forEach((b) => b.onclick = () => window.open(`/proposal/${b.dataset.present}/?${prQuery(prMe())}`, '_blank'));
       el.querySelectorAll('[data-pdf]').forEach((b) => b.onclick = () => openPdfModal(b.dataset.pdf));
       el.querySelectorAll('[data-send]').forEach((b) => b.onclick = () => openSendModal(b.dataset.send));
@@ -1088,8 +1083,12 @@
     const p = PR.data.proposals.find((x) => x.id === pid);
     openModal(`${modalHead('Xuất PDF – ' + esc(p.short), 'Bản PDF gửi khách: không có ghi chú người thuyết trình.')}
       <form id="pdf-form" class="px-6 py-5 space-y-3">
-        ${field('Tên doanh nghiệp khách hàng (hiện ở trang bìa)', `<input id="pdf-kh" class="${inputCls}" placeholder="Để trống: Ban lãnh đạo, đội kinh doanh">`)}
-        <p class="text-xs text-slate-500">Thông tin chuyên viên ở slide cuối: <b>${esc([prMe().tv, prMe().sdt].filter(Boolean).join(' • '))}</b> (sửa ở mục "Thông tin của bạn").</p>
+        <p class="text-xs text-slate-500">Trang bìa: "Kính gửi" + người nhận + doanh nghiệp.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          ${field('Người nhận', `<input id="pdf-nguoi" maxlength="120" class="${inputCls}" placeholder="Anh Nguyễn Văn Minh – Giám đốc">`)}
+          ${field('Doanh nghiệp khách hàng', `<input id="pdf-kh" maxlength="160" class="${inputCls}" placeholder="Công ty Cổ phần ABC">`)}
+        </div>
+        <p class="text-xs text-slate-500">Slide cuối ghi chuyên viên: <b>${esc([prMe().tv, prMe().sdt].filter(Boolean).join(' • '))}</b> (theo hồ sơ nhân viên).</p>
         <div id="pdf-prog" class="hidden"><div class="h-2 rounded-full bg-slate-100 overflow-hidden"><div id="pdf-bar" class="h-2 bg-redsun-700" style="width:0%"></div></div><p id="pdf-txt" class="text-xs text-slate-500 mt-1"></p></div>
         ${errBox('pdf-err')}
         <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="${BTN_S}">Đóng</button><button id="pdf-go" class="${BTN_P}">Tạo PDF</button></div>
@@ -1099,7 +1098,7 @@
       const go = document.getElementById('pdf-go'); go.disabled = true;
       document.getElementById('pdf-prog').classList.remove('hidden');
       try {
-        const { blob, name } = await buildPdf(pid, { ...prMe(), kh: document.getElementById('pdf-kh').value.trim() }, (k, n) => {
+        const { blob, name } = await buildPdf(pid, { ...prMe(), kh: document.getElementById('pdf-kh').value.trim(), nguoi: document.getElementById('pdf-nguoi').value.trim() }, (k, n) => {
           document.getElementById('pdf-bar').style.width = Math.round(k / n * 100) + '%';
           document.getElementById('pdf-txt').textContent = k < n ? `Đang tạo trang ${k + 1}/${n}…` : 'Hoàn tất.';
         });
@@ -1114,18 +1113,18 @@
     const p = PR.data.proposals.find((x) => x.id === pid), mailOk = PR.data.mail_ready, me = prMe();
     openModal(`${modalHead('Gửi khách hàng – ' + esc(p.short), 'Khách nhận đường dẫn xem proposal (không có ghi chú) và tự tải PDF trên trang.')}
       <form id="send-form" class="px-6 py-5 space-y-3">
-        ${field('Tên doanh nghiệp khách hàng *', `<input id="sd-company" required maxlength="160" class="${inputCls}" placeholder="Công ty Cổ phần ABC">`, 'Hiện ở trang bìa và tiêu đề email.')}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          ${field('Người nhận (xưng hô)', `<input id="sd-name" maxlength="120" class="${inputCls}" placeholder="Anh Minh">`)}
-          ${field('Email khách hàng' + (mailOk ? ' *' : ''), `<input id="sd-email" type="text" class="${inputCls}" placeholder="khachhang@congty.vn">`, 'Nhiều email: cách nhau bằng dấu phẩy.')}
+          ${field('Người nhận', `<input id="sd-name" maxlength="120" class="${inputCls}" placeholder="Anh Nguyễn Văn Minh">`, 'Hiện ở trang bìa ("Kính gửi") và lời chào email.')}
+          ${field('Doanh nghiệp khách hàng *', `<input id="sd-company" required maxlength="160" class="${inputCls}" placeholder="Công ty Cổ phần ABC">`, 'Hiện ở trang bìa và tiêu đề email.')}
         </div>
+        ${field('Email khách hàng' + (mailOk ? ' *' : ''), `<input id="sd-email" type="text" class="${inputCls}" placeholder="khachhang@congty.vn">`, 'Nhiều email: cách nhau bằng dấu phẩy.')}
         ${field('CC thêm (tùy chọn)', `<input id="sd-cc" class="${inputCls}" placeholder="truongphong@redsun.vn">`, `Bạn (${esc(me.email)}) luôn nhận bản CC; khách trả lời sẽ về email của bạn.`)}
         ${field('Lời nhắn', `<textarea id="sd-msg" rows="4" maxlength="2000" class="${inputCls}">Cảm ơn Quý khách đã dành thời gian trao đổi với Redsun. Em xin gửi Quý khách bản đề xuất ${esc(p.short)} để tham khảo. Nếu cần trao đổi thêm, Quý khách vui lòng liên hệ em theo thông tin bên dưới.</textarea>`)}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
           ${field('Đường dẫn có hiệu lực', `<select id="sd-days" class="${inputCls}"><option value="7">7 ngày</option><option value="14">14 ngày</option><option value="30" selected>30 ngày (bằng hiệu lực báo giá)</option><option value="60">60 ngày</option><option value="90">90 ngày</option></select>`)}
           <label class="flex items-center gap-2 text-sm text-slate-700 pb-2"><input id="sd-send" type="checkbox" ${mailOk ? 'checked' : 'disabled'} class="w-4 h-4"> Gửi email ngay cho khách</label>
         </div>
-        <p class="text-xs text-slate-500">Slide cuối ghi chuyên viên: <b>${esc([me.tv, me.cv, me.sdt, me.email].filter(Boolean).join(' • '))}</b>.${me.sdt ? '' : ' <span class="text-amber-700">Chưa có số điện thoại – nhập ở mục "Thông tin của bạn".</span>'}</p>
+        <p class="text-xs text-slate-500">Người gửi: <b>${esc(PR.data.from_name || '')}</b> • Slide cuối và chữ ký: <b>${esc([me.tv, me.cv, me.sdt, me.email].filter(Boolean).join(' • '))}</b>.${me.sdt ? '' : ' <span class="text-amber-700">Hồ sơ chưa có số điện thoại (Admin cập nhật ở tab Nhân viên).</span>'}</p>
         ${errBox('send-err')}
         <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="${BTN_S}">Hủy</button><button id="sd-go" class="${BTN_P}">${mailOk ? 'Gửi proposal' : 'Tạo đường dẫn'}</button></div>
       </form>`);
@@ -1138,7 +1137,7 @@
       goBtn.disabled = true;
       try {
         const r = await api('/api/proposals/shares', { method: 'POST', body: { proposal_id: pid, customer_company: v('sd-company'), customer_name: v('sd-name'),
-          customer_email: v('sd-email'), cc: v('sd-cc'), message: v('sd-msg'), days: +v('sd-days'), send_email: sendBox.checked, fields: prMe() } });
+          customer_email: v('sd-email'), cc: v('sd-cc'), message: v('sd-msg'), days: +v('sd-days'), send_email: sendBox.checked } });
         const sent = r.email_status === 'sent' || r.email_status === 'sent_test';
         openModal(`${modalHead(sent ? 'Đã gửi proposal' : 'Đã tạo đường dẫn')}
           <div class="px-6 py-5 space-y-3 text-sm text-slate-700">

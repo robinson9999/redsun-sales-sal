@@ -150,13 +150,14 @@ async function ensureSchema(env) {
       VALUES (?1,?2,?3,'admin',0,?4,1,?5)`).bind(SEED_ADMIN.email, SEED_ADMIN.name, SEED_ADMIN.title, SEED_ADMIN.hash, now()).run();
   }
   // Nâng cấp cấu trúc cho dữ liệu đã có (bỏ qua nếu cột đã tồn tại)
-  for (const sql of ['ALTER TABLE users ADD COLUMN cb_ratio REAL', 'ALTER TABLE kpis ADD COLUMN cb REAL', 'ALTER TABLE sessions ADD COLUMN last_seen INTEGER']) {
+  for (const sql of ['ALTER TABLE users ADD COLUMN cb_ratio REAL', 'ALTER TABLE kpis ADD COLUMN cb REAL', 'ALTER TABLE sessions ADD COLUMN last_seen INTEGER',
+    'ALTER TABLE users ADD COLUMN phone TEXT', 'ALTER TABLE users ADD COLUMN contact_email TEXT']) {
     try { await env.DB.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(String(e.message))) throw e; }
   }
   schemaReady = true;
 }
 
-const USER_COLS = 'id,email,name,title,app_role,manager_id,salary_w,cb_ratio,start_date,active,must_change';
+const USER_COLS = 'id,email,name,title,app_role,manager_id,salary_w,cb_ratio,start_date,active,must_change,phone,contact_email';
 
 async function subtreeIds(env, managerId) {
   const r = await env.DB.prepare(`WITH RECURSIVE t(id) AS (
@@ -230,6 +231,9 @@ async function suggestTeamTarget(env, managerId, y, m, factor = 1) {
 // Mặc định của từng cài đặt (lưu trong bảng settings dạng chuỗi)
 const SETTING_DEFAULTS = {
   company_name: 'Công ty Đầu tư Công nghệ Redsun',
+  // Thông tin công ty: hiện ở slide cuối proposal, tên người gửi và chữ ký email
+  company_short: 'Redsun', company_address: 'Tầng 7, 159 Điện Biên Phủ, P. Gia Định, TP.HCM',
+  company_phone: '(+84-28) 7301 5630', company_hotline: '', company_email: 'kinhdoanh@redsun.vn', company_website: 'redsun.vn',
   smtp_host: '', smtp_port: '587', smtp_security: 'starttls', smtp_user: '', smtp_pass: '',
   smtp_from_email: '', smtp_from_name: 'Redsun Sales',
   survey_recipients: '', survey_cc: '', survey_bcc: '', survey_cc_sales: '1', survey_include_internal: '1',
@@ -282,10 +286,10 @@ function mailReady(env, cfg) {
   if (env.MAIL_MODE === 'log') return 'log';            // chạy thử trên máy: chỉ ghi log
   return cfg.smtp_host && cfg.smtp_from_email ? 'smtp' : null;
 }
-async function sendMail(env, cfg, { to, cc = [], bcc = [], subject, html, text, replyTo }) {
+async function sendMail(env, cfg, { to, cc = [], bcc = [], subject, html, text, replyTo, fromName }) {
   const mode = mailReady(env, cfg);
   if (!mode) throw new Error('Chưa cấu hình máy chủ gửi email (SMTP). Admin vào tab Cài đặt để thiết lập.');
-  if (mode === 'log') { console.log('[MAIL]', JSON.stringify({ to, cc, bcc, subject, replyTo, chars: (html || '').length })); return; }
+  if (mode === 'log') { console.log('[MAIL]', JSON.stringify({ fromName: fromName || cfg.smtp_from_name, to, cc, bcc, subject, replyTo, chars: (html || '').length })); return; }
   const port = intSetting(cfg.smtp_port, 587, 1, 65535);
   if (port === 25) throw new Error('Cloudflare chặn cổng 25. Hãy dùng cổng 587 (STARTTLS) hoặc 465 (SSL/TLS).');
   const sec = cfg.smtp_security;
@@ -299,7 +303,7 @@ async function sendMail(env, cfg, { to, cc = [], bcc = [], subject, html, text, 
   try { mailer = await WorkerMailer.connect(opts); } catch (e) { throw new Error(smtpErrVi(e, opts)); }
   try {
     await mailer.send({
-      from: { name: cfg.smtp_from_name || cfg.company_name, email: cfg.smtp_from_email.trim() },
+      from: { name: fromName || cfg.smtp_from_name || cfg.company_name, email: cfg.smtp_from_email.trim() },
       to: to.map((email) => ({ email })), cc: cc.length ? cc.map((email) => ({ email })) : undefined,
       bcc: bcc.length ? bcc.map((email) => ({ email })) : undefined,
       reply: replyTo ? { email: replyTo } : undefined, subject, text, html
@@ -382,7 +386,7 @@ async function canViewSurvey(env, me, row) {
 const escH = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const fmtDay = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : '';
-const FIELD_KEYS = { kh: 160, tv: 80, cv: 80, sdt: 40, email: 120 };
+const FIELD_KEYS = { kh: 160, nguoi: 120, tv: 80, cv: 80, sdt: 40, email: 120, ct: 160, ctdc: 200, ctdt: 100, cthl: 40, ctemail: 120, ctweb: 120 };
 function cleanFields(f) {
   const out = {};
   for (const [k, n] of Object.entries(FIELD_KEYS)) { const v = clip(f && f[k], n); if (v) out[k] = v; }
@@ -400,20 +404,43 @@ function shareView(r, url) {
 async function canSeeShare(env, me, row) {
   return row.user_id === me.id || me.app_role === 'admin' || (me.app_role === 'manager' && (await subtreeIds(env, me.id)).has(row.user_id));
 }
+// Thông tin điền vào proposal: nhân viên (từ hồ sơ trong tab Nhân viên) + công ty (tab Cài đặt) + khách hàng
+const staffTitle = (u) => u.title && u.title !== 'other' && TITLES[u.title] ? TITLES[u.title].name.replace(/\s*\(.*\)$/, '') : 'Chuyên viên tư vấn';
+const staffEmail = (u) => parseEmails(u.contact_email || '')[0] || parseEmails(u.email || '')[0] || '';
+function proposalFields(cfg, u, extra = {}) {
+  const phoneLine = [cfg.company_phone, cfg.company_hotline ? 'Hotline ' + cfg.company_hotline : ''].filter(Boolean).join(' · ');
+  return cleanFields({
+    ...extra,
+    tv: u.name, cv: staffTitle(u), sdt: u.phone || '', email: staffEmail(u),
+    ct: cfg.company_name, ctdc: cfg.company_address, ctdt: phoneLine, cthl: cfg.company_hotline || cfg.company_phone,
+    ctemail: cfg.company_email, ctweb: cfg.company_website
+  });
+}
+// Chữ ký email proposal
+function proposalSignature(cfg, f) {
+  return [
+    [f.tv, f.cv].filter(Boolean).join(' - '),
+    [f.sdt, f.email].filter(Boolean).join(' - '),
+    f.ct,
+    f.ctdc,
+    [f.ctemail, f.ctweb].filter(Boolean).join(' - ')
+  ].filter(Boolean);
+}
 // Email gửi khách: chỉ có đường dẫn xem proposal (bản không ghi chú; khách tự tải PDF trên trang)
 async function emailProposal(env, url, row, owner) {
   const cfg = await getSettings(env);
   const p = getProposal(row.proposal_id);
   const f = JSON.parse(row.fields || '{}');
   const to = parseEmails(row.customer_email);
-  const ownerEmail = owner && parseEmails(owner.email)[0];
+  const ownerEmail = f.email || staffEmail(owner);
   const cc = [...new Set([...(ownerEmail ? [ownerEmail] : []), ...parseEmails(row.cc)])].filter((e) => !to.includes(e));
   const link = shareLink(url, row.token);
   const khach = row.customer_company || row.customer_name || 'Quý khách';
   const subject = (p.email_subject || p.title).replace(/\{khach\}/g, khach).slice(0, 200);
   const greet = row.customer_name ? `Kính gửi ${row.customer_name},` : 'Kính gửi Quý khách,';
-  const msg = row.message || `Cảm ơn Quý khách đã quan tâm đến giải pháp của Redsun. Chúng tôi xin gửi Quý khách bản đề xuất ${p.short} để tham khảo.`;
-  const sign = [f.tv || owner.name, f.cv, f.sdt, f.email || ownerEmail, cfg.company_name].filter(Boolean);
+  const msg = row.message || `Cảm ơn Quý khách đã quan tâm đến giải pháp của ${cfg.company_short || cfg.company_name}. Chúng tôi xin gửi Quý khách bản đề xuất ${p.short} để tham khảo.`;
+  const sign = proposalSignature(cfg, f);
+  const fromName = `${f.tv || owner.name} - ${cfg.company_short || cfg.company_name}`.replace(/["\r\n]/g, '').slice(0, 120);
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#0f172a;max-width:600px">
     <p style="margin:0 0 14px">${escH(greet)}</p>
     ${msg.split(/\n+/).map((x) => `<p style="margin:0 0 12px">${escH(x)}</p>`).join('')}
@@ -421,13 +448,13 @@ async function emailProposal(env, url, row, owner) {
     <p style="margin:0 0 6px;font-size:13px;color:#475569">Trên trang đề xuất, Quý khách có thể trình chiếu hoặc bấm <b>Tải PDF</b> để lưu bản PDF. Đường dẫn có hiệu lực đến <b>${fmtDay(row.expires_at)}</b>.</p>
     <p style="margin:0 0 18px;font-size:13px;color:#475569">Nếu nút không hoạt động, Quý khách mở đường dẫn: <a href="${link}">${link}</a></p>
     <p style="margin:0">Trân trọng,</p>
-    <p style="margin:4px 0 0">${sign.map((x, k) => k ? escH(x) : `<b>${escH(x)}</b>`).join('<br>')}</p></div>`;
+    <div style="margin:10px 0 0;padding-top:10px;border-top:3px solid #EDAD32;font-size:14px;line-height:1.55;color:#334155">${sign.map((x, k) => k === 0 ? `<b style="color:#003049">${escH(x)}</b>` : k === 2 ? `<b style="color:#BA0000">${escH(x)}</b>` : escH(x)).join('<br>')}</div></div>`;
   const text = `${greet}\n\n${msg}\n\nXem đề xuất ${p.short}: ${link}\nĐường dẫn có hiệu lực đến ${fmtDay(row.expires_at)}. Trên trang có nút Tải PDF.\n\nTrân trọng,\n${sign.join('\n')}`;
   let status, error = null;
   if (!to.length) { status = 'no_recipients'; error = 'Chưa có email khách hàng hợp lệ.'; }
   else {
     try {
-      await sendMail(env, cfg, { to, cc, subject, html, text, replyTo: ownerEmail || undefined });
+      await sendMail(env, cfg, { to, cc, subject, html, text, replyTo: ownerEmail || undefined, fromName });
       status = mailReady(env, cfg) === 'log' ? 'sent_test' : 'sent';
     } catch (e) { status = /Chưa cấu hình/.test(e.message) ? 'not_configured' : 'failed'; error = String(e.message || e).slice(0, 300); }
   }
@@ -565,9 +592,9 @@ async function api(req, env, url, me, ctx) {
     const v = await validateUser(env, body, null);
     if (v.error) return bad(v.error);
     const pw = tempPassword();
-    const r = await env.DB.prepare(`INSERT INTO users (email,name,title,app_role,manager_id,salary_w,cb_ratio,start_date,active,pw_hash,must_change,created_at)
-        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,1,?9,1,?10)`)
-      .bind(v.email, v.name, v.title, v.app_role, v.manager_id, v.salary_w, v.cb_ratio, v.start_date, await hashPassword(pw), now()).run();
+    const r = await env.DB.prepare(`INSERT INTO users (email,name,title,app_role,manager_id,salary_w,cb_ratio,start_date,active,pw_hash,must_change,created_at,phone,contact_email)
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,1,?9,1,?10,?11,?12)`)
+      .bind(v.email, v.name, v.title, v.app_role, v.manager_id, v.salary_w, v.cb_ratio, v.start_date, await hashPassword(pw), now(), v.phone, v.contact_email).run();
     return json({ ok: true, id: r.meta.last_row_id, temp_password: pw });
   }
   if (p === '/api/users/import' && method === 'POST') {
@@ -581,9 +608,9 @@ async function api(req, env, url, me, ctx) {
       const given = String(r.password || '');
       if (given && given.length < 8) { skipped.push({ email: v.email, reason: 'Mật khẩu dưới 8 ký tự.' }); continue; }
       const pw = given || tempPassword();
-      await env.DB.prepare(`INSERT INTO users (email,name,title,app_role,salary_w,cb_ratio,start_date,active,pw_hash,must_change,created_at)
-          VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8,1,?9)`)
-        .bind(v.email, v.name, v.title, v.app_role, v.salary_w, v.cb_ratio, v.start_date, await hashPassword(pw), now()).run();
+      await env.DB.prepare(`INSERT INTO users (email,name,title,app_role,salary_w,cb_ratio,start_date,active,pw_hash,must_change,created_at,phone,contact_email)
+          VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8,1,?9,?10,?11)`)
+        .bind(v.email, v.name, v.title, v.app_role, v.salary_w, v.cb_ratio, v.start_date, await hashPassword(pw), now(), v.phone, v.contact_email).run();
       created.push({ email: v.email, name: v.name, temp_password: given ? null : pw, manager_email: normEmail(r.manager_email) });
     }
     // Gán quản lý trực tiếp theo email (sau khi đã tạo đủ người)
@@ -611,8 +638,8 @@ async function api(req, env, url, me, ctx) {
       const c = await env.DB.prepare(`SELECT COUNT(*) AS n FROM users WHERE app_role='admin' AND active=1 AND id<>?1`).bind(id).first();
       if (!c.n) return bad('Phải còn ít nhất một Admin đang hoạt động.');
     }
-    const stmts = [env.DB.prepare(`UPDATE users SET email=?1,name=?2,title=?3,app_role=?4,manager_id=?5,salary_w=?6,cb_ratio=?7,start_date=?8,active=?9 WHERE id=?10`)
-      .bind(v.email, v.name, v.title, v.app_role, v.manager_id, v.salary_w, v.cb_ratio, v.start_date, active, id)];
+    const stmts = [env.DB.prepare(`UPDATE users SET email=?1,name=?2,title=?3,app_role=?4,manager_id=?5,salary_w=?6,cb_ratio=?7,start_date=?8,active=?9,phone=?11,contact_email=?12 WHERE id=?10`)
+      .bind(v.email, v.name, v.title, v.app_role, v.manager_id, v.salary_w, v.cb_ratio, v.start_date, active, id, v.phone, v.contact_email)];
     if (!active) stmts.push(env.DB.prepare('DELETE FROM sessions WHERE user_id=?1').bind(id));
     await env.DB.batch(stmts);
     return json({ ok: true });
@@ -729,6 +756,8 @@ async function api(req, env, url, me, ctx) {
       const b = body || {}, upd = {};
       const str = (v, n) => String(v ?? '').trim().slice(0, n);
       if ('company_name' in b) { const v = str(b.company_name, 120); if (!v) return bad('Chưa nhập tên công ty.'); upd.company_name = v; }
+      for (const [k, n] of [['company_short', 60], ['company_address', 200], ['company_phone', 40], ['company_hotline', 40], ['company_website', 120]]) if (k in b) upd[k] = str(b[k], n);
+      if ('company_email' in b) { const v = normEmail(b.company_email); if (v && !parseEmails(v).length) return bad('Email công ty không hợp lệ.'); upd.company_email = v; }
       if ('smtp_host' in b) { const v = str(b.smtp_host, 200); if (v && !/^[a-z0-9.-]+$/i.test(v)) return bad('Máy chủ SMTP không hợp lệ.'); upd.smtp_host = v; }
       if ('smtp_port' in b) { const v = parseInt(b.smtp_port, 10); if (!(v > 0 && v < 65536)) return bad('Cổng SMTP không hợp lệ.'); if (v === 25) return bad('Cloudflare chặn cổng 25. Dùng 587 hoặc 465.'); upd.smtp_port = String(v); }
       if ('smtp_security' in b) { if (!['ssl', 'starttls', 'none'].includes(b.smtp_security)) return bad('Kiểu bảo mật không hợp lệ.'); upd.smtp_security = b.smtp_security; }
@@ -833,7 +862,8 @@ async function api(req, env, url, me, ctx) {
     const r = await env.DB.prepare(`SELECT s.*, u.name AS user_name FROM proposal_shares s JOIN users u ON u.id = s.user_id
         WHERE ${where} ORDER BY s.created_at DESC LIMIT 300`).bind(...binds).all();
     const cfg = await getSettings(env);
-    return json({ proposals: PROPOSALS, shares: r.results.map((x) => shareView(x, url)), mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg) });
+    return json({ proposals: PROPOSALS, shares: r.results.map((x) => shareView(x, url)), mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg),
+      fields: proposalFields(cfg, me), from_name: `${me.name} - ${cfg.company_short || cfg.company_name}` });
   }
   if (p === '/api/proposals/shares' && method === 'POST') {
     const prop = getProposal(body.proposal_id);
@@ -845,7 +875,7 @@ async function api(req, env, url, me, ctx) {
     if (send && !emails.length) return bad('Email khách hàng không hợp lệ.');
     if (emails.length > 5 || cc.length > 10) return bad('Tối đa 5 email nhận và 10 email CC.');
     const days = intSetting(body.days, 30, 1, 90);
-    const fields = cleanFields({ ...(body.fields || {}), kh: customer_company });
+    const fields = proposalFields(await getSettings(env), me, { kh: customer_company, nguoi: customer_name });
     const token = b64(crypto.getRandomValues(new Uint8Array(24))).replace(/[+/=]/g, (c) => ({ '+': '-', '/': '_', '=': '' }[c]));
     const t = now();
     const r = await env.DB.prepare(`INSERT INTO proposal_shares (token,proposal_id,user_id,customer_company,customer_name,customer_email,cc,message,fields,created_at,expires_at)
@@ -857,12 +887,12 @@ async function api(req, env, url, me, ctx) {
   }
   m = p.match(/^\/api\/proposals\/shares\/(\d+)\/(send|revoke)$/);
   if (m && method === 'POST') {
-    const row = await env.DB.prepare('SELECT s.*, u.name AS user_name, u.email AS user_email FROM proposal_shares s JOIN users u ON u.id=s.user_id WHERE s.id=?1').bind(+m[1]).first();
+    const row = await env.DB.prepare('SELECT s.*, u.name AS user_name, u.email AS user_email, u.contact_email AS user_contact_email FROM proposal_shares s JOIN users u ON u.id=s.user_id WHERE s.id=?1').bind(+m[1]).first();
     if (!row || !(await canSeeShare(env, me, row))) return bad('Không tìm thấy hoặc bạn không có quyền.', 404);
     if (row.user_id !== me.id && me.app_role !== 'admin') return bad('Chỉ người gửi hoặc Admin được thao tác.', 403);
     if (m[2] === 'revoke') { await env.DB.prepare('UPDATE proposal_shares SET revoked=1 WHERE id=?1').bind(row.id).run(); return json({ ok: true }); }
     if (row.revoked || row.expires_at < now()) return bad('Đường dẫn đã thu hồi hoặc hết hạn. Hãy tạo lần gửi mới.');
-    return json({ ok: true, ...(await emailProposal(env, url, row, { id: row.user_id, name: row.user_name, email: row.user_email })) });
+    return json({ ok: true, ...(await emailProposal(env, url, row, { id: row.user_id, name: row.user_name, email: row.user_email, contact_email: row.user_contact_email })) });
   }
 
   return bad('Không tìm thấy.', 404);
@@ -879,6 +909,10 @@ async function validateUser(env, b, selfId) {
   if (cb_ratio != null) cb_ratio = Math.round(cb_ratio * 1000) / 1000;
   const manager_id = b.manager_id ? +b.manager_id : null;
   const start_date = b.start_date && /^\d{4}-\d{2}-\d{2}$/.test(b.start_date) ? b.start_date : null;
+  // Thông tin liên hệ (hiện trên proposal & chữ ký email): số điện thoại, email liên hệ (để trống = email đăng nhập)
+  const phone = String(b.phone ?? '').replace(/[^\d+().\s-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 30) || null;
+  const contact_email = normEmail(b.contact_email || '') || null;
+  if (contact_email && !isEmail(contact_email)) return { error: 'Email liên hệ không hợp lệ.' };
   if (!isEmail(email)) return { error: 'Email không hợp lệ.' };
   if (!name) return { error: 'Chưa nhập họ tên.' };
   if (!title) return { error: 'Chức danh không hợp lệ.' };
@@ -891,7 +925,7 @@ async function validateUser(env, b, selfId) {
     if (!mg) return { error: 'Quản lý trực tiếp không tồn tại.' };
     if (selfId && (await subtreeIds(env, selfId)).has(manager_id)) return { error: 'Không thể chọn cấp dưới làm quản lý (tạo vòng lặp).' };
   }
-  return { email, name, title, app_role, manager_id, salary_w, cb_ratio, start_date };
+  return { email, name, title, app_role, manager_id, salary_w, cb_ratio, start_date, phone, contact_email };
 }
 
 /* ---------------------------- Điều hướng ---------------------------- */

@@ -23,7 +23,8 @@
   [].forEach.call(document.querySelectorAll('[data-field]'), function (el) {
     var k = el.getAttribute('data-field');
     var v = given[k] != null && given[k] !== '' ? given[k] : q.get(k);
-    if (v) el.textContent = String(v).slice(0, 160);
+    if (v) el.textContent = String(v).slice(0, 200);
+    if (el.hasAttribute('data-hide-empty') && !el.textContent.trim()) { el.style.display = 'none'; return; }
     if (!locked && !embedded) {
       el.contentEditable = 'true'; el.spellcheck = false; el.title = 'Bấm để sửa';
       el.addEventListener('click', function (e) { e.stopPropagation(); });

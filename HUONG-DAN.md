@@ -61,7 +61,9 @@ Mọi nhân viên đều dùng được. Mỗi proposal có 3 nút:
 - **⬇ Xuất PDF**: nhập tên doanh nghiệp khách (hiện ở trang bìa) → **Tạo PDF**. PDF tạo ngay trên trình duyệt, **không có ghi chú**.
 - **✉ Gửi khách hàng**: nhập doanh nghiệp, người nhận, email khách, lời nhắn và thời hạn đường dẫn (mặc định 30 ngày, bằng hiệu lực báo giá) → **Gửi proposal**. Khách nhận email có nút **Xem đề xuất**; trang khách mở là bản **không có ghi chú** (ghi chú không có trong mã trang), khách tự bấm **Tải PDF**. Người gửi luôn nhận bản CC, khách trả lời sẽ về email của người gửi. Bỏ chọn "Gửi email ngay" để chỉ tạo đường dẫn rồi gửi qua Zalo.
 
-**Thông tin của bạn trên slide cuối** (họ tên, chức danh, số điện thoại, email) điền một lần ở tab Proposal, lưu trên trình duyệt đang dùng.
+**Thông tin tự điền vào proposal**: trang bìa ghi "Kính gửi" + người nhận + doanh nghiệp khách; slide cuối lấy họ tên, chức danh, **số điện thoại** và **email liên hệ** từ hồ sơ nhân viên (Admin nhập ở tab Nhân viên; email liên hệ để trống thì dùng email đăng nhập) và thông tin công ty ở tab ⚙ Cài đặt (tên đầy đủ, tên viết tắt, địa chỉ, điện thoại, hotline, email, website).
+
+**Email gửi proposal**: tên người gửi là "[Tên nhân viên] - [Tên viết tắt công ty]". Chữ ký gồm: Tên - Chức danh; Số điện thoại - Email nhân viên; Tên công ty đầy đủ; Địa chỉ; Email công ty - Website.
 
 **Proposal đã gửi**: theo dõi trạng thái email, số lần khách mở đường dẫn (không tính khi nhân viên đang đăng nhập tự mở), sao chép link, gửi lại hoặc **Thu hồi** (khách mở sẽ thấy thông báo liên hệ chuyên viên). Nhân viên thấy của mình, Quản lý thấy cả cấp dưới, Admin thấy toàn bộ.
 
