@@ -55,6 +55,18 @@ Chỉ **Admin** thấy tab **⚙ Cài đặt** (Quản lý và Sales không th�
 ### Thêm mẫu phiếu mới
 Mẫu phiếu khai báo trong `public/survey-lib.js` (mảng `TEMPLATES`): mỗi phiếu gồm các mục, mỗi mục gồm bảng câu hỏi, nhóm chọn nhiều (`checks`, có thể giới hạn `max`), chọn một (`radio`), bảng nhiều cột (`grid`, cột kiểu Có/Không, đánh dấu hoặc chữ) và ghi chú (`note`, thêm `report: true` để hiện cả trong email/PDF). Thêm phiếu mới chỉ cần thêm một phần tử vào mảng; màn hình điền, email và PDF tự hiển thị theo.
 
+## 6b. Proposal (tab Proposal)
+Mọi nhân viên đều dùng được. Mỗi proposal có 3 nút:
+- **▶ Trình chiếu**: mở bản nội bộ ở tab mới. Phím `N` hoặc nút **Ghi chú** bật/tắt ghi chú người thuyết trình (mặc định tắt); `←` `→` chuyển trang, `F` toàn màn hình. Có thể bấm vào tên khách ở bìa và các dòng chuyên viên ở slide cuối để sửa trước khi trình chiếu.
+- **⬇ Xuất PDF**: nhập tên doanh nghiệp khách (hiện ở trang bìa) → **Tạo PDF**. PDF tạo ngay trên trình duyệt, **không có ghi chú**.
+- **✉ Gửi khách hàng**: nhập doanh nghiệp, người nhận, email khách, lời nhắn và thời hạn đường dẫn (mặc định 30 ngày, bằng hiệu lực báo giá) → **Gửi proposal**. Khách nhận email có nút **Xem đề xuất**; trang khách mở là bản **không có ghi chú** (ghi chú không có trong mã trang), khách tự bấm **Tải PDF**. Người gửi luôn nhận bản CC, khách trả lời sẽ về email của người gửi. Bỏ chọn "Gửi email ngay" để chỉ tạo đường dẫn rồi gửi qua Zalo.
+
+**Thông tin của bạn trên slide cuối** (họ tên, chức danh, số điện thoại, email) điền một lần ở tab Proposal, lưu trên trình duyệt đang dùng.
+
+**Proposal đã gửi**: theo dõi trạng thái email, số lần khách mở đường dẫn (không tính khi nhân viên đang đăng nhập tự mở), sao chép link, gửi lại hoặc **Thu hồi** (khách mở sẽ thấy thông báo liên hệ chuyên viên). Nhân viên thấy của mình, Quản lý thấy cả cấp dưới, Admin thấy toàn bộ.
+
+**Thêm proposal mới**: đặt bộ trình chiếu vào `public/proposal/<mã>/` gồm `index.html` (nội bộ, có ghi chú trong thẻ `<aside>`), `client.html` (gửi khách, không có `<aside>`) và `assets/`, dùng chung `public/proposal/_shared/` (trình chiếu, xuất PDF, font). Sau đó khai báo một dòng trong `public/proposal/catalog.js`.
+
 ## 7. Admin: Cài đặt hệ thống (tab ⚙ Cài đặt)
 Gồm 4 phần, bấm **Lưu cài đặt** ở cuối trang để lưu.
 

@@ -60,6 +60,7 @@
       <button id="tab-btn-calc" onclick="switchTab('calc')" class="py-3 px-1 border-b-2 font-semibold text-sm">Bảng tính thu nhập</button>
       <button id="tab-btn-kpi" onclick="switchTab('kpi')" class="py-3 px-1 border-b-2 font-semibold text-sm">KPI của bạn</button>
       <button id="tab-btn-survey" onclick="switchTab('survey')" class="py-3 px-1 border-b-2 font-semibold text-sm">Phiếu khảo sát</button>
+      <button id="tab-btn-proposal" onclick="switchTab('proposal')" class="py-3 px-1 border-b-2 font-semibold text-sm">Proposal</button>
       <button id="tab-btn-assign" onclick="switchTab('assign')" class="hidden py-3 px-1 border-b-2 font-semibold text-sm">Giao KPI</button>
       <button id="tab-btn-staff" onclick="switchTab('staff')" class="hidden py-3 px-1 border-b-2 font-semibold text-sm">Nhân viên</button>
       <button id="tab-btn-settings" onclick="switchTab('settings')" class="hidden py-3 px-1 border-b-2 font-semibold text-sm">⚙ Cài đặt</button>
@@ -420,6 +421,7 @@
 </div>
 <div id="tab-kpi" class="hidden"></div>
 <div id="tab-survey" class="hidden"></div>
+<div id="tab-proposal" class="hidden"></div>
 <div id="tab-assign" class="hidden"></div>
 <div id="tab-staff" class="hidden"></div>
 <div id="tab-settings" class="hidden"></div>
@@ -783,7 +785,7 @@ function recalc(){
 }
 
 /* ---------- Tab ---------- */
-const TABS = { policy:'quy-che', calc:'bang-tinh', kpi:'kpi-cua-ban', survey:'khao-sat', assign:'giao-kpi', staff:'nhan-vien', settings:'cai-dat' };
+const TABS = { policy:'quy-che', calc:'bang-tinh', kpi:'kpi-cua-ban', survey:'khao-sat', proposal:'proposal', assign:'giao-kpi', staff:'nhan-vien', settings:'cai-dat' };
 function switchTab(t){
   if (!TABS[t] || $('tab-btn-'+t).classList.contains('hidden') && t!=='policy') t = 'policy';
   const on='py-3 px-1 border-b-2 font-semibold text-sm border-gold-400 text-gold-400';
@@ -811,7 +813,9 @@ function rsInit(){
   });
   renderDoc();
   setRole('sales');
+  const h0 = location.hash;                         // giữ tab trong đường dẫn (vd #proposal) cho appInit
   switchTab('policy');
+  if (h0) { try { history.replaceState(null, '', h0); } catch(e){} }
   if (window.appInit) window.appInit(); else switchTab(tabFromHash());
 }
 if (document.readyState === 'complete') rsInit();

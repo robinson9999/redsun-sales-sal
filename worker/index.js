@@ -7,6 +7,7 @@
 
 import { WorkerMailer } from 'worker-mailer';
 import { getTemplate, sanitizeAnswers, validateAnswers, renderReport, renderText, surveyTitle } from '../public/survey-lib.js';
+import { PROPOSALS, getProposal } from '../public/proposal/catalog.js';
 
 const PBKDF2_ITER = 50000;               // Workers giới hạn tối đa 100.000; 50.000 để vừa CPU gói miễn phí
 
@@ -119,6 +120,27 @@ async function ensureSchema(env) {
       submitted_at INTEGER)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_survey_user ON survey_responses(user_id, updated_at)`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS proposal_shares (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token TEXT NOT NULL UNIQUE,
+      proposal_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      customer_company TEXT NOT NULL DEFAULT '',
+      customer_name TEXT NOT NULL DEFAULT '',
+      customer_email TEXT NOT NULL DEFAULT '',
+      cc TEXT NOT NULL DEFAULT '',
+      message TEXT NOT NULL DEFAULT '',
+      fields TEXT NOT NULL DEFAULT '{}',
+      email_status TEXT,
+      email_error TEXT,
+      sent_at INTEGER,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked INTEGER NOT NULL DEFAULT 0,
+      views INTEGER NOT NULL DEFAULT 0,
+      first_viewed_at INTEGER,
+      last_viewed_at INTEGER)`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_pshare_user ON proposal_shares(user_id, created_at)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_users_manager ON users(manager_id)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_kpis_period ON kpis(year, month)`)
   ]);
@@ -354,6 +376,105 @@ async function emailSurvey(env, url, row, owner) {
 }
 async function canViewSurvey(env, me, row) {
   return row.user_id === me.id || me.app_role === 'admin' || (me.app_role === 'manager' && (await subtreeIds(env, me.id)).has(row.user_id));
+}
+
+/* ---------------------------- Proposal ---------------------------- */
+const escH = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+const fmtDay = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : '';
+const FIELD_KEYS = { kh: 160, tv: 80, cv: 80, sdt: 40, email: 120 };
+function cleanFields(f) {
+  const out = {};
+  for (const [k, n] of Object.entries(FIELD_KEYS)) { const v = clip(f && f[k], n); if (v) out[k] = v; }
+  return out;
+}
+const shareLink = (url, token) => `${url.origin}/p/${token}/`;
+function shareView(r, url) {
+  const p = getProposal(r.proposal_id);
+  return { id: r.id, proposal_id: r.proposal_id, proposal_title: p ? p.short : r.proposal_id, user_id: r.user_id, user_name: r.user_name,
+    customer_company: r.customer_company, customer_name: r.customer_name, customer_email: r.customer_email, cc: r.cc,
+    email_status: r.email_status, email_error: r.email_error, sent_at: r.sent_at, created_at: r.created_at, expires_at: r.expires_at,
+    revoked: !!r.revoked, expired: r.expires_at < now(), views: r.views, first_viewed_at: r.first_viewed_at, last_viewed_at: r.last_viewed_at,
+    link: shareLink(url, r.token) };
+}
+async function canSeeShare(env, me, row) {
+  return row.user_id === me.id || me.app_role === 'admin' || (me.app_role === 'manager' && (await subtreeIds(env, me.id)).has(row.user_id));
+}
+// Email gửi khách: chỉ có đường dẫn xem proposal (bản không ghi chú; khách tự tải PDF trên trang)
+async function emailProposal(env, url, row, owner) {
+  const cfg = await getSettings(env);
+  const p = getProposal(row.proposal_id);
+  const f = JSON.parse(row.fields || '{}');
+  const to = parseEmails(row.customer_email);
+  const ownerEmail = owner && parseEmails(owner.email)[0];
+  const cc = [...new Set([...(ownerEmail ? [ownerEmail] : []), ...parseEmails(row.cc)])].filter((e) => !to.includes(e));
+  const link = shareLink(url, row.token);
+  const khach = row.customer_company || row.customer_name || 'Quý khách';
+  const subject = (p.email_subject || p.title).replace(/\{khach\}/g, khach).slice(0, 200);
+  const greet = row.customer_name ? `Kính gửi ${row.customer_name},` : 'Kính gửi Quý khách,';
+  const msg = row.message || `Cảm ơn Quý khách đã quan tâm đến giải pháp của Redsun. Chúng tôi xin gửi Quý khách bản đề xuất ${p.short} để tham khảo.`;
+  const sign = [f.tv || owner.name, f.cv, f.sdt, f.email || ownerEmail, cfg.company_name].filter(Boolean);
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#0f172a;max-width:600px">
+    <p style="margin:0 0 14px">${escH(greet)}</p>
+    ${msg.split(/\n+/).map((x) => `<p style="margin:0 0 12px">${escH(x)}</p>`).join('')}
+    <p style="margin:22px 0"><a href="${link}" style="display:inline-block;background:#BA0000;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 26px;border-radius:8px">Xem đề xuất ${escH(p.short)}</a></p>
+    <p style="margin:0 0 6px;font-size:13px;color:#475569">Trên trang đề xuất, Quý khách có thể trình chiếu hoặc bấm <b>Tải PDF</b> để lưu bản PDF. Đường dẫn có hiệu lực đến <b>${fmtDay(row.expires_at)}</b>.</p>
+    <p style="margin:0 0 18px;font-size:13px;color:#475569">Nếu nút không hoạt động, Quý khách mở đường dẫn: <a href="${link}">${link}</a></p>
+    <p style="margin:0">Trân trọng,</p>
+    <p style="margin:4px 0 0">${sign.map((x, k) => k ? escH(x) : `<b>${escH(x)}</b>`).join('<br>')}</p></div>`;
+  const text = `${greet}\n\n${msg}\n\nXem đề xuất ${p.short}: ${link}\nĐường dẫn có hiệu lực đến ${fmtDay(row.expires_at)}. Trên trang có nút Tải PDF.\n\nTrân trọng,\n${sign.join('\n')}`;
+  let status, error = null;
+  if (!to.length) { status = 'no_recipients'; error = 'Chưa có email khách hàng hợp lệ.'; }
+  else {
+    try {
+      await sendMail(env, cfg, { to, cc, subject, html, text, replyTo: ownerEmail || undefined });
+      status = mailReady(env, cfg) === 'log' ? 'sent_test' : 'sent';
+    } catch (e) { status = /Chưa cấu hình/.test(e.message) ? 'not_configured' : 'failed'; error = String(e.message || e).slice(0, 300); }
+  }
+  const ok = status === 'sent' || status === 'sent_test';
+  await env.DB.prepare('UPDATE proposal_shares SET email_status=?1, email_error=?2, sent_at=CASE WHEN ?3 THEN ?4 ELSE sent_at END WHERE id=?5')
+    .bind(status, error, ok ? 1 : 0, now(), row.id).run();
+  return { email_status: status, email_error: error };
+}
+// Trang công khai /p/<mã>/…: bản gửi khách (không ghi chú) của một lần chia sẻ
+async function servePublicProposal(req, env, url, me) {
+  const parts = url.pathname.split('/');            // ['', 'p', mã | _shared, ...]
+  const seg = parts[2] || '', rest = parts.slice(3).join('/');
+  const noStore = { 'cache-control': 'no-store' };
+  const notFound = () => withHeaders(new Response('Không tìm thấy.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } }), noStore);
+  if (seg === '_shared') {                          // thư viện, font, CSS dùng chung (không chứa nội dung proposal)
+    if (!rest || rest.includes('..')) return notFound();
+    return withHeaders(await env.ASSETS.fetch(new Request(new URL('/proposal/_shared/' + rest, url), req)), { 'cache-control': 'public, max-age=86400' });
+  }
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(seg)) return notFound();
+  const row = await env.DB.prepare(`SELECT s.*, u.name AS user_name, u.email AS user_email FROM proposal_shares s JOIN users u ON u.id=s.user_id WHERE s.token=?1`).bind(seg).first();
+  const p = row && getProposal(row.proposal_id);
+  if (!row || !p) return notFound();
+  if (parts.length === 3) return Response.redirect(new URL(`/p/${seg}/`, url), 301);
+  if (row.revoked || row.expires_at < now()) {
+    const f = JSON.parse(row.fields || '{}');
+    const who = [f.tv || row.user_name, f.sdt, f.email || row.user_email].filter(Boolean).map(escH).join(' · ');
+    const page = `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escH(p.title)}</title></head>
+      <body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#003049;color:#F7F5F0;font-family:Arial,Helvetica,sans-serif;padding:24px">
+      <div style="max-width:560px"><div style="width:56px;height:6px;background:#EDAD32;margin-bottom:20px"></div>
+      <h1 style="font-size:26px;margin:0 0 12px">Đường dẫn đề xuất đã ${row.revoked ? 'được thu hồi' : 'hết hạn'}</h1>
+      <p style="font-size:16px;line-height:1.6;color:#C9D6DE;margin:0 0 16px">Vui lòng liên hệ chuyên viên tư vấn để nhận bản đề xuất mới nhất.</p>
+      <p style="font-size:16px;line-height:1.6;margin:0">${who}</p></div></body></html>`;
+    return withHeaders(new Response(page, { status: 410, headers: { 'content-type': 'text/html; charset=utf-8' } }), noStore);
+  }
+  if (rest && rest !== 'index.html') {
+    if (!rest.startsWith('assets/') || rest.includes('..')) return notFound();
+    return withHeaders(await env.ASSETS.fetch(new Request(new URL(`/proposal/${p.id}/${rest}`, url), req)), { 'cache-control': 'private, max-age=3600' });
+  }
+  const res = await env.ASSETS.fetch(new Request(new URL(`/proposal/${p.id}/client`, url), { method: 'GET' }));
+  if (!res.ok) return withHeaders(new Response('Không tải được đề xuất.', { status: 502 }), noStore);
+  const inject = `<script>window.RS_LOCKED=true;window.RS_FIELDS=${JSON.stringify(JSON.parse(row.fields || '{}')).replace(/</g, '\\u003c')};</script>`;
+  const page = (await res.text()).replace('<script src="../_shared/viewer.js">', inject + '<script src="../_shared/viewer.js">');
+  if (!me && req.method === 'GET') {                // không tính lượt xem khi nhân viên (đang đăng nhập) mở thử
+    const t = now();
+    await env.DB.prepare('UPDATE proposal_shares SET views=views+1, last_viewed_at=?1, first_viewed_at=COALESCE(first_viewed_at, ?1) WHERE id=?2').bind(t, row.id).run();
+  }
+  return withHeaders(new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8' } }), noStore);
 }
 
 /* ---------------------------- API ---------------------------- */
@@ -701,6 +822,49 @@ async function api(req, env, url, me, ctx) {
     }
   }
 
+  /* ----- Proposal ----- */
+  if (p === '/api/proposals' && method === 'GET') {
+    let where = 's.user_id = ?1', binds = [me.id];
+    if (me.app_role === 'admin') { where = '1'; binds = []; }
+    else if (me.app_role === 'manager') {
+      const ids = [me.id, ...(await subtreeIds(env, me.id))];
+      where = `s.user_id IN (${ids.map(() => '?').join(',')})`; binds = ids;
+    }
+    const r = await env.DB.prepare(`SELECT s.*, u.name AS user_name FROM proposal_shares s JOIN users u ON u.id = s.user_id
+        WHERE ${where} ORDER BY s.created_at DESC LIMIT 300`).bind(...binds).all();
+    const cfg = await getSettings(env);
+    return json({ proposals: PROPOSALS, shares: r.results.map((x) => shareView(x, url)), mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg) });
+  }
+  if (p === '/api/proposals/shares' && method === 'POST') {
+    const prop = getProposal(body.proposal_id);
+    if (!prop) return bad('Không tìm thấy proposal.');
+    const customer_company = clip(body.customer_company, 160), customer_name = clip(body.customer_name, 120);
+    const emails = parseEmails(body.customer_email), cc = parseEmails(body.cc);
+    const send = !!body.send_email;
+    if (!customer_company) return bad('Chưa nhập tên doanh nghiệp khách hàng.');
+    if (send && !emails.length) return bad('Email khách hàng không hợp lệ.');
+    if (emails.length > 5 || cc.length > 10) return bad('Tối đa 5 email nhận và 10 email CC.');
+    const days = intSetting(body.days, 30, 1, 90);
+    const fields = cleanFields({ ...(body.fields || {}), kh: customer_company });
+    const token = b64(crypto.getRandomValues(new Uint8Array(24))).replace(/[+/=]/g, (c) => ({ '+': '-', '/': '_', '=': '' }[c]));
+    const t = now();
+    const r = await env.DB.prepare(`INSERT INTO proposal_shares (token,proposal_id,user_id,customer_company,customer_name,customer_email,cc,message,fields,created_at,expires_at)
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)`).bind(token, prop.id, me.id, customer_company, customer_name, emails.join(', '), cc.join(', '),
+        String(body.message || '').slice(0, 2000).trim(), JSON.stringify(fields), t, t + days * 86400).run();
+    const row = await env.DB.prepare('SELECT * FROM proposal_shares WHERE id=?1').bind(r.meta.last_row_id).first();
+    const mail = send ? await emailProposal(env, url, row, me) : {};
+    return json({ ok: true, id: row.id, link: shareLink(url, token), ...mail });
+  }
+  m = p.match(/^\/api\/proposals\/shares\/(\d+)\/(send|revoke)$/);
+  if (m && method === 'POST') {
+    const row = await env.DB.prepare('SELECT s.*, u.name AS user_name, u.email AS user_email FROM proposal_shares s JOIN users u ON u.id=s.user_id WHERE s.id=?1').bind(+m[1]).first();
+    if (!row || !(await canSeeShare(env, me, row))) return bad('Không tìm thấy hoặc bạn không có quyền.', 404);
+    if (row.user_id !== me.id && me.app_role !== 'admin') return bad('Chỉ người gửi hoặc Admin được thao tác.', 403);
+    if (m[2] === 'revoke') { await env.DB.prepare('UPDATE proposal_shares SET revoked=1 WHERE id=?1').bind(row.id).run(); return json({ ok: true }); }
+    if (row.revoked || row.expires_at < now()) return bad('Đường dẫn đã thu hồi hoặc hết hạn. Hãy tạo lần gửi mới.');
+    return json({ ok: true, ...(await emailProposal(env, url, row, { id: row.user_id, name: row.user_name, email: row.user_email })) });
+  }
+
   return bad('Không tìm thấy.', 404);
 }
 
@@ -748,6 +912,10 @@ export default {
       await ensureSchema(env);
       const me = await currentUser(env, req, url);
       if (url.pathname.startsWith('/api/')) return withHeaders(await api(req, env, url, me, ctx));
+      if (url.pathname === '/p' || url.pathname.startsWith('/p/')) {          // proposal gửi khách (công khai theo mã)
+        if (req.method !== 'GET' && req.method !== 'HEAD') return withHeaders(new Response('Method not allowed', { status: 405 }));
+        return await servePublicProposal(req, env, url, me);
+      }
 
       const isLogin = url.pathname === '/login' || url.pathname === '/login.html';
       if (isLogin) {
@@ -759,7 +927,8 @@ export default {
           return Response.redirect(new URL('/login', url), 302);
         return withHeaders(new Response('Unauthorized', { status: 401 }));
       }
-      return withHeaders(await env.ASSETS.fetch(req), { 'cache-control': 'private, no-store' });
+      const sameFrame = url.pathname.startsWith('/proposal/') ? { 'x-frame-options': 'SAMEORIGIN' } : {};   // tab Proposal tạo PDF qua khung ẩn
+      return withHeaders(await env.ASSETS.fetch(req), { 'cache-control': 'private, no-store', ...sameFrame });
     } catch (e) {
       console.error(e);
       return withHeaders(json({ error: 'Lỗi máy chủ: ' + (e.message || e) }, 500));

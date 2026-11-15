@@ -1,0 +1,38 @@
+/* Trình chiếu proposal Redsun – dùng chung cho mọi bộ proposal (khung 1920×1080) */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:#0b1c26;overflow:hidden;font-family:'Be Vietnam Pro',Arial,sans-serif}
+#stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+#deck{position:relative;width:1920px;height:1080px;transform-origin:center center;flex:none}
+.slide{position:absolute;inset:0;width:1920px;height:1080px;overflow:hidden;font-family:'Be Vietnam Pro',Arial,sans-serif;color:#003049}
+@media screen{.slide:not(.active){display:none!important}.slide.active{animation:rsfade .35s ease}}
+@keyframes rsfade{from{opacity:0}to{opacity:1}}
+.slide.rs-cap{animation:none!important;opacity:1!important}
+.slide ul{padding-left:28px}
+.slide table{border-collapse:collapse;width:100%}
+.slide aside{display:none}
+x-shape{display:block}
+x-shape[kind="ellipse"]{border-radius:50%}
+x-shape[kind="arrow-right"]{clip-path:polygon(0 30%,62% 30%,62% 0,100% 50%,62% 100%,62% 70%,0 70%)}
+x-shape[kind="arrow-left"]{clip-path:polygon(100% 30%,38% 30%,38% 0,0 50%,38% 100%,38% 70%,100% 70%)}
+svg.x-icon{display:inline-block;flex:none}
+body.rs-edit [data-field]{cursor:text;border-radius:4px}
+body.rs-edit [data-field]:hover,body.rs-edit [data-field]:focus{outline:2px dashed #EDAD32;outline-offset:6px}
+#bar{position:fixed;right:16px;top:16px;display:flex;gap:6px;align-items:center;background:rgba(0,48,73,.88);color:#F7F5F0;padding:8px 12px;border-radius:999px;font:500 14px 'Be Vietnam Pro',Arial,sans-serif;opacity:0;transition:opacity .3s;z-index:10}
+body:hover #bar,#bar:focus-within,body.rs-busy #bar{opacity:1}
+#bar button{background:none;border:0;color:inherit;font:inherit;cursor:pointer;padding:4px 10px;border-radius:999px;white-space:nowrap}
+#bar button:hover{background:rgba(255,255,255,.15)}
+#bar button.on{background:#EDAD32;color:#003049}
+#bar button:disabled{opacity:.6;cursor:wait}
+#notes{position:fixed;left:0;right:0;bottom:0;max-height:32vh;overflow:auto;background:#F7F5F0;color:#003049;padding:16px 24px 24px;font:400 16px/1.5 'Be Vietnam Pro',Arial,sans-serif;border-top:4px solid #EDAD32;display:none;z-index:9}
+#notes b{display:block;font-size:12px;letter-spacing:.06em;color:#BA0000;margin-bottom:4px}
+body.show-notes #notes{display:block}
+#rs-hold{position:fixed;left:-30000px;top:0;width:1920px;height:1080px;overflow:hidden;pointer-events:none}
+@media print{
+  @page{size:1920px 1080px;margin:0}
+  html,body{overflow:visible;background:#fff;height:auto}
+  #stage{position:static;display:block}
+  #deck{transform:none!important;width:1920px;height:auto}
+  .slide{position:relative;page-break-after:always;break-after:page;animation:none}
+  #bar,#notes,#rs-hold{display:none!important}
+  [data-field]{outline:none!important}
+}

@@ -189,6 +189,7 @@
     if (!S.me || S.me.must_change) return;
     if (t === 'kpi') renderKpi();
     if (t === 'survey') renderSurvey();
+    if (t === 'proposal') renderProposal();
     if (t === 'settings') renderSettings();
     if (t === 'assign') renderAssign();
     if (t === 'staff') renderStaff(true);
@@ -968,5 +969,187 @@
         finally { v('test').disabled = false; }
       };
     } catch (e) { el.innerHTML = errorCard(e.message); }
+  }
+
+  /* =========================================================================
+     TRANG: PROPOSAL – xem/trình chiếu (có ghi chú), xuất PDF và gửi khách (không ghi chú)
+     ========================================================================= */
+  const PR = { data: null, q: '' };
+  const PR_ME_KEY = 'rs_prop_me';
+  const prEl = () => document.getElementById('tab-proposal');
+  const fmtDT = (ts) => ts ? new Date(ts * 1000).toLocaleString('vi-VN', { hour12: false, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  function prMe() {
+    let saved = {}; try { saved = JSON.parse(localStorage.getItem(PR_ME_KEY) || '{}'); } catch (e) { /* bỏ qua */ }
+    const t = S.me.title !== 'other' ? titleName(S.me.title).replace(/ \(.+\)$/, '') : 'Chuyên viên tư vấn';
+    return { tv: saved.tv || S.me.name, cv: saved.cv || t, sdt: saved.sdt || '', email: saved.email || S.me.email };
+  }
+  const prQuery = (f) => new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
+  const shareStatus = (s) => s.revoked ? ['Đã thu hồi', 'bg-slate-200 text-slate-600'] : s.expired ? ['Hết hạn', 'bg-slate-200 text-slate-600']
+    : s.views ? ['Khách đã xem', 'bg-emerald-100 text-emerald-800'] : (STATUS[s.email_status] || ['Đã tạo link', 'bg-blue-100 text-blue-800']);
+
+  async function renderProposal() {
+    const el = prEl(); el.innerHTML = loading;
+    try {
+      const d = await api('/api/proposals'); PR.data = d;
+      const me = prMe(), many = S.me.app_role !== 'staff';
+      const mailNote = d.mail_ready ? '' : `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Hệ thống <b>chưa cấu hình máy chủ gửi email (SMTP)</b>. Bạn vẫn tạo được đường dẫn để gửi khách qua Zalo/email riêng; gửi email trực tiếp dùng được sau khi Admin cấu hình.</div>`;
+      const cards = d.proposals.map((p) => card(`<div class="p-5 flex flex-col h-full">
+          <div class="h-1.5 w-12 rounded-full bg-redsun-700 mb-3"></div>
+          <h3 class="font-extrabold text-slate-900">${esc(p.title)}</h3>
+          <p class="text-sm text-slate-500 mt-1 flex-grow">${esc(p.description)}</p>
+          <p class="text-[11px] text-slate-400 mt-3">${p.slides} slide • cập nhật ${esc(p.updated.split('-').reverse().join('/'))}</p>
+          <div class="flex flex-wrap gap-2 mt-4">
+            <button data-present="${p.id}" class="${BTN_S}">▶ Trình chiếu</button>
+            <button data-pdf="${p.id}" class="${BTN_S}">⬇ Xuất PDF</button>
+            <button data-send="${p.id}" class="${BTN_P}">✉ Gửi khách hàng</button>
+          </div></div>`)).join('');
+      const meCard = card(`<div class="p-5"><div class="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-3">
+          <div><h3 class="font-bold text-slate-900">Thông tin của bạn trên slide cuối</h3><p class="text-xs text-slate-500">Hiện ở mục "Chuyên viên tư vấn" khi trình chiếu, xuất PDF và gửi khách. Lưu trên trình duyệt này.</p></div>
+          <span id="pr-me-saved" class="text-xs text-emerald-700 font-semibold hidden">Đã lưu</span></div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            ${field('Họ tên', `<input data-me="tv" value="${esc(me.tv)}" class="${inputCls}">`)}
+            ${field('Chức danh', `<input data-me="cv" value="${esc(me.cv)}" class="${inputCls}">`)}
+            ${field('Số điện thoại', `<input data-me="sdt" value="${esc(me.sdt)}" placeholder="09xx xxx xxx" class="${inputCls}">`)}
+            ${field('Email', `<input data-me="email" value="${esc(me.email)}" class="${inputCls}">`)}
+          </div></div>`);
+      el.innerHTML = pageHead('Proposal', 'Trình chiếu có ghi chú cho Sales. Bản PDF và bản gửi khách luôn bỏ phần ghi chú.')
+        + `<div class="space-y-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${cards}</div>${meCard}${mailNote}
+          ${card(`<div class="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div><h3 class="font-bold text-slate-900">Proposal đã gửi</h3><p class="text-xs text-slate-500">${d.shares.length} lần gửi${many ? (S.me.app_role === 'admin' ? ' (toàn công ty)' : ' (của bạn và nhân viên dưới quyền)') : ''} • lượt xem tính khi khách mở đường dẫn</p></div>
+              <input id="pr-q" placeholder="Tìm khách hàng, email…" value="${esc(PR.q)}" class="${inputCls} sm:w-72"></div>
+            <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-slate-50 text-[11px] uppercase text-slate-500"><tr>
+              <th class="py-2.5 px-3 text-left">Khách hàng</th><th class="py-2.5 px-3 text-left">Proposal</th>${many ? '<th class="py-2.5 px-3 text-left">Sales</th>' : ''}
+              <th class="py-2.5 px-3 text-left">Trạng thái</th><th class="py-2.5 px-3 text-left">Lượt xem</th><th class="py-2.5 px-3 text-left">Hiệu lực đến</th><th></th></tr></thead>
+              <tbody id="pr-rows" class="divide-y divide-slate-100"></tbody></table></div>`)}</div>`;
+      el.querySelectorAll('[data-me]').forEach((i) => i.onchange = () => {
+        const v = {}; el.querySelectorAll('[data-me]').forEach((x) => { v[x.dataset.me] = x.value.trim(); });
+        try { localStorage.setItem(PR_ME_KEY, JSON.stringify(v)); } catch (e) { /* bỏ qua */ }
+        const s = document.getElementById('pr-me-saved'); s.classList.remove('hidden'); setTimeout(() => s.classList.add('hidden'), 1500);
+      });
+      el.querySelectorAll('[data-present]').forEach((b) => b.onclick = () => window.open(`/proposal/${b.dataset.present}/?${prQuery(prMe())}`, '_blank'));
+      el.querySelectorAll('[data-pdf]').forEach((b) => b.onclick = () => openPdfModal(b.dataset.pdf));
+      el.querySelectorAll('[data-send]').forEach((b) => b.onclick = () => openSendModal(b.dataset.send));
+      const drawRows = () => {
+        const q = PR.q.toLowerCase();
+        const rows = d.shares.filter((s) => !q || [s.customer_company, s.customer_name, s.customer_email, s.user_name].join(' ').toLowerCase().includes(q));
+        document.getElementById('pr-rows').innerHTML = rows.length ? rows.map((s) => {
+          const mine = s.user_id === S.me.id, can = mine || S.me.app_role === 'admin', live = !s.revoked && !s.expired;
+          return `<tr><td class="py-2.5 px-3"><b class="text-slate-900">${esc(s.customer_company)}</b><br><span class="text-[11px] text-slate-500">${esc([s.customer_name, s.customer_email].filter(Boolean).join(' • ') || 'Chỉ tạo đường dẫn')}</span></td>
+            <td class="py-2.5 px-3 text-xs">${esc(s.proposal_title)}<br><span class="text-slate-400">${fmtDT(s.created_at)}</span></td>
+            ${many ? `<td class="py-2.5 px-3 text-xs">${esc(s.user_name)}</td>` : ''}
+            <td class="py-2.5 px-3">${pill(shareStatus(s))}${s.email_error ? `<div class="text-[11px] text-redsun-700 mt-1 max-w-xs">${esc(s.email_error)}</div>` : ''}</td>
+            <td class="py-2.5 px-3 text-xs">${s.views ? `<b>${s.views}</b> lần<br><span class="text-slate-400">gần nhất ${fmtDT(s.last_viewed_at)}</span>` : '<span class="text-slate-400">Chưa xem</span>'}</td>
+            <td class="py-2.5 px-3 text-xs text-slate-500">${fmtDate(s.expires_at)}</td>
+            <td class="py-2.5 px-3 text-right whitespace-nowrap">${live ? `<button data-copy="${esc(s.link)}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Sao chép link</button><a href="${esc(s.link)}" target="_blank" rel="noopener" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Mở</a>` : ''}
+              ${live && can && s.customer_email ? `<button data-resend="${s.id}" class="text-xs text-slate-600 hover:underline mr-2">Gửi lại</button>` : ''}
+              ${live && can ? `<button data-revoke="${s.id}" class="text-xs text-slate-500 hover:underline">Thu hồi</button>` : ''}</td></tr>`;
+        }).join('') : `<tr><td colspan="7" class="py-8 text-center text-slate-400">${d.shares.length ? 'Không có kết quả phù hợp.' : 'Chưa gửi proposal nào. Bấm "Gửi khách hàng" ở trên để bắt đầu.'}</td></tr>`;
+        el.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => copyText(b.dataset.copy, b));
+        el.querySelectorAll('[data-resend]').forEach((b) => b.onclick = async () => {
+          if (!confirm('Gửi lại email proposal cho khách hàng này?')) return;
+          b.disabled = true;
+          try { const r = await api(`/api/proposals/shares/${b.dataset.resend}/send`, { method: 'POST', body: {} }); if (r.email_error) alert(r.email_error); renderProposal(); } catch (e) { alert(e.message); b.disabled = false; }
+        });
+        el.querySelectorAll('[data-revoke]').forEach((b) => b.onclick = async () => {
+          if (!confirm('Thu hồi đường dẫn? Khách sẽ không mở được proposal này nữa.')) return;
+          try { await api(`/api/proposals/shares/${b.dataset.revoke}/revoke`, { method: 'POST', body: {} }); renderProposal(); } catch (e) { alert(e.message); }
+        });
+      };
+      drawRows();
+      document.getElementById('pr-q').oninput = (e) => { PR.q = e.target.value; drawRows(); };
+    } catch (e) { el.innerHTML = errorCard(e.message); }
+  }
+  async function copyText(t, btn) {
+    try { await navigator.clipboard.writeText(t); } catch (e) { prompt('Sao chép đường dẫn:', t); return; }
+    if (btn) { const o = btn.textContent; btn.textContent = 'Đã sao chép'; setTimeout(() => { btn.textContent = o; }, 1500); }
+  }
+
+  // Tạo PDF bản gửi khách (không ghi chú) trong một khung ẩn rồi tải về
+  function buildPdf(pid, fields, onProgress) {
+    return new Promise((resolve, reject) => {
+      const f = document.createElement('iframe');
+      f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
+      f.style.cssText = 'position:fixed;left:-10000px;top:0;width:1280px;height:720px;border:0;opacity:0;pointer-events:none';
+      f.src = `/proposal/${pid}/client?embed=1&${prQuery(fields)}`;
+      const done = (fn, v) => { setTimeout(() => f.remove(), 500); fn(v); };
+      f.onload = async () => {
+        try {
+          const w = f.contentWindow; let n = 0;
+          while (!w.RS && n++ < 50) await new Promise((r) => setTimeout(r, 100));
+          if (!w.RS) throw new Error('Không mở được proposal.');
+          const blob = await w.RS.exportPdf(onProgress);
+          done(resolve, { blob, name: w.RS.pdfName() });
+        } catch (e) { done(reject, e); }
+      };
+      document.body.appendChild(f);
+    });
+  }
+  function openPdfModal(pid) {
+    const p = PR.data.proposals.find((x) => x.id === pid);
+    openModal(`${modalHead('Xuất PDF – ' + esc(p.short), 'Bản PDF gửi khách: không có ghi chú người thuyết trình.')}
+      <form id="pdf-form" class="px-6 py-5 space-y-3">
+        ${field('Tên doanh nghiệp khách hàng (hiện ở trang bìa)', `<input id="pdf-kh" class="${inputCls}" placeholder="Để trống: Ban lãnh đạo, đội kinh doanh">`)}
+        <p class="text-xs text-slate-500">Thông tin chuyên viên ở slide cuối: <b>${esc([prMe().tv, prMe().sdt].filter(Boolean).join(' • '))}</b> (sửa ở mục "Thông tin của bạn").</p>
+        <div id="pdf-prog" class="hidden"><div class="h-2 rounded-full bg-slate-100 overflow-hidden"><div id="pdf-bar" class="h-2 bg-redsun-700" style="width:0%"></div></div><p id="pdf-txt" class="text-xs text-slate-500 mt-1"></p></div>
+        ${errBox('pdf-err')}
+        <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="${BTN_S}">Đóng</button><button id="pdf-go" class="${BTN_P}">Tạo PDF</button></div>
+      </form>`);
+    document.getElementById('pdf-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const go = document.getElementById('pdf-go'); go.disabled = true;
+      document.getElementById('pdf-prog').classList.remove('hidden');
+      try {
+        const { blob, name } = await buildPdf(pid, { ...prMe(), kh: document.getElementById('pdf-kh').value.trim() }, (k, n) => {
+          document.getElementById('pdf-bar').style.width = Math.round(k / n * 100) + '%';
+          document.getElementById('pdf-txt').textContent = k < n ? `Đang tạo trang ${k + 1}/${n}…` : 'Hoàn tất.';
+        });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+        document.getElementById('pdf-txt').textContent = `Đã tải ${name} (${(blob.size / 1048576).toFixed(1)} MB).`;
+      } catch (err) { showErr('pdf-err', 'Không tạo được PDF: ' + err.message); }
+      finally { go.disabled = false; }
+    };
+  }
+  function openSendModal(pid) {
+    const p = PR.data.proposals.find((x) => x.id === pid), mailOk = PR.data.mail_ready, me = prMe();
+    openModal(`${modalHead('Gửi khách hàng – ' + esc(p.short), 'Khách nhận đường dẫn xem proposal (không có ghi chú) và tự tải PDF trên trang.')}
+      <form id="send-form" class="px-6 py-5 space-y-3">
+        ${field('Tên doanh nghiệp khách hàng *', `<input id="sd-company" required maxlength="160" class="${inputCls}" placeholder="Công ty Cổ phần ABC">`, 'Hiện ở trang bìa và tiêu đề email.')}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          ${field('Người nhận (xưng hô)', `<input id="sd-name" maxlength="120" class="${inputCls}" placeholder="Anh Minh">`)}
+          ${field('Email khách hàng' + (mailOk ? ' *' : ''), `<input id="sd-email" type="text" class="${inputCls}" placeholder="khachhang@congty.vn">`, 'Nhiều email: cách nhau bằng dấu phẩy.')}
+        </div>
+        ${field('CC thêm (tùy chọn)', `<input id="sd-cc" class="${inputCls}" placeholder="truongphong@redsun.vn">`, `Bạn (${esc(me.email)}) luôn nhận bản CC; khách trả lời sẽ về email của bạn.`)}
+        ${field('Lời nhắn', `<textarea id="sd-msg" rows="4" maxlength="2000" class="${inputCls}">Cảm ơn Quý khách đã dành thời gian trao đổi với Redsun. Em xin gửi Quý khách bản đề xuất ${esc(p.short)} để tham khảo. Nếu cần trao đổi thêm, Quý khách vui lòng liên hệ em theo thông tin bên dưới.</textarea>`)}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+          ${field('Đường dẫn có hiệu lực', `<select id="sd-days" class="${inputCls}"><option value="7">7 ngày</option><option value="14">14 ngày</option><option value="30" selected>30 ngày (bằng hiệu lực báo giá)</option><option value="60">60 ngày</option><option value="90">90 ngày</option></select>`)}
+          <label class="flex items-center gap-2 text-sm text-slate-700 pb-2"><input id="sd-send" type="checkbox" ${mailOk ? 'checked' : 'disabled'} class="w-4 h-4"> Gửi email ngay cho khách</label>
+        </div>
+        <p class="text-xs text-slate-500">Slide cuối ghi chuyên viên: <b>${esc([me.tv, me.cv, me.sdt, me.email].filter(Boolean).join(' • '))}</b>.${me.sdt ? '' : ' <span class="text-amber-700">Chưa có số điện thoại – nhập ở mục "Thông tin của bạn".</span>'}</p>
+        ${errBox('send-err')}
+        <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="${BTN_S}">Hủy</button><button id="sd-go" class="${BTN_P}">${mailOk ? 'Gửi proposal' : 'Tạo đường dẫn'}</button></div>
+      </form>`);
+    const sendBox = document.getElementById('sd-send'), goBtn = document.getElementById('sd-go');
+    sendBox.onchange = () => { goBtn.textContent = sendBox.checked ? 'Gửi proposal' : 'Tạo đường dẫn'; };
+    document.getElementById('send-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const v = (id) => document.getElementById(id).value.trim();
+      if (sendBox.checked && !v('sd-email')) return showErr('send-err', 'Nhập email khách hàng hoặc bỏ chọn "Gửi email ngay".');
+      goBtn.disabled = true;
+      try {
+        const r = await api('/api/proposals/shares', { method: 'POST', body: { proposal_id: pid, customer_company: v('sd-company'), customer_name: v('sd-name'),
+          customer_email: v('sd-email'), cc: v('sd-cc'), message: v('sd-msg'), days: +v('sd-days'), send_email: sendBox.checked, fields: prMe() } });
+        const sent = r.email_status === 'sent' || r.email_status === 'sent_test';
+        openModal(`${modalHead(sent ? 'Đã gửi proposal' : 'Đã tạo đường dẫn')}
+          <div class="px-6 py-5 space-y-3 text-sm text-slate-700">
+            ${sent ? `<p>Email đã gửi tới <b>${esc(v('sd-email'))}</b>${r.email_status === 'sent_test' ? ' (chế độ thử nghiệm: chỉ ghi log)' : ''}, bạn nhận bản CC.</p>`
+              : r.email_error ? `<div class="p-3 rounded-lg bg-redsun-50 text-redsun-800">Chưa gửi được email: ${esc(r.email_error)}</div>` : '<p>Gửi đường dẫn này cho khách qua Zalo hoặc email riêng:</p>'}
+            <div class="flex gap-2"><input id="sd-link" readonly value="${esc(r.link)}" class="${inputCls} font-mono text-xs"><button id="sd-copy" class="${BTN_S}">Sao chép</button></div>
+            <div class="flex justify-end gap-2 pt-2"><a href="${esc(r.link)}" target="_blank" rel="noopener" class="${BTN_S}">Xem như khách</a><button onclick="closeModal()" class="${BTN_P}">Xong</button></div>
+          </div>`);
+        document.getElementById('sd-copy').onclick = (ev) => copyText(r.link, ev.target);
+        renderProposal();
+      } catch (err) { showErr('send-err', err.message); goBtn.disabled = false; }
+    };
   }
 })();
