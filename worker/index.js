@@ -433,7 +433,9 @@ async function emailProposal(env, url, row, owner) {
   const f = JSON.parse(row.fields || '{}');
   const to = parseEmails(row.customer_email);
   const ownerEmail = f.email || staffEmail(owner);
-  const cc = [...new Set([...(ownerEmail ? [ownerEmail] : []), ...parseEmails(row.cc)])].filter((e) => !to.includes(e));
+  // CC: người gửi + CC nhập khi gửi + "Email nhận bản copy" (Cài đặt mục 3); BCC: theo Cài đặt
+  const cc = [...new Set([...(ownerEmail ? [ownerEmail] : []), ...parseEmails(row.cc), ...parseEmails(cfg.survey_cc)])].filter((e) => !to.includes(e));
+  const bcc = [...new Set(parseEmails(cfg.survey_bcc))].filter((e) => !to.includes(e) && !cc.includes(e));
   const link = shareLink(url, row.token);
   const khach = row.customer_company || row.customer_name || 'Quý khách';
   const subject = (p.email_subject || p.title).replace(/\{khach\}/g, khach).slice(0, 200);
@@ -454,7 +456,7 @@ async function emailProposal(env, url, row, owner) {
   if (!to.length) { status = 'no_recipients'; error = 'Chưa có email khách hàng hợp lệ.'; }
   else {
     try {
-      await sendMail(env, cfg, { to, cc, subject, html, text, replyTo: ownerEmail || undefined, fromName });
+      await sendMail(env, cfg, { to, cc, bcc, subject, html, text, replyTo: ownerEmail || undefined, fromName });
       status = mailReady(env, cfg) === 'log' ? 'sent_test' : 'sent';
     } catch (e) { status = /Chưa cấu hình/.test(e.message) ? 'not_configured' : 'failed'; error = String(e.message || e).slice(0, 300); }
   }

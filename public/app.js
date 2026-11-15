@@ -923,9 +923,9 @@
             <input id="cf-test_to" type="email" value="${esc(S.me.email)}" class="${inputCls} sm:w-72">
             <button id="cf-test" class="${BTN_S} whitespace-nowrap">Lưu & gửi thử</button>
           </div><div id="cf-test-res" class="mt-2 text-sm"></div>`)}
-        ${sec('3. Email phiếu khảo sát', 'Khi bấm "Lưu & gửi email", phiếu luôn được gửi tới email của người lập phiếu. Các ô bên dưới là tùy chọn.', `<div class="space-y-4">
-          ${field('Gửi thêm bản copy (CC) – tùy chọn', ta('survey_cc', c.survey_cc, 'truongphong@redsun.vn'), 'Để trống nếu không cần. Người nhận thấy được danh sách CC.')}
-          ${field('Gửi thêm bản copy ẩn (BCC) – tùy chọn', ta('survey_bcc', c.survey_bcc, 'luutru@redsun.vn'), 'Để trống nếu không cần. Phù hợp để lưu trữ.')}
+        ${sec('3. Email nhận bản copy', 'Áp dụng cho email phiếu khảo sát và email gửi proposal cho khách hàng. Người gửi luôn nhận bản CC; các ô bên dưới là tùy chọn.', `<div class="space-y-4">
+          ${field('Gửi thêm bản copy (CC) – tùy chọn', ta('survey_cc', c.survey_cc, 'truongphong@redsun.vn'), 'Để trống nếu không cần. Người nhận (kể cả khách hàng khi gửi proposal) thấy được danh sách CC.')}
+          ${field('Gửi thêm bản copy ẩn (BCC) – tùy chọn', ta('survey_bcc', c.survey_bcc, 'luutru@redsun.vn'), 'Để trống nếu không cần. Khách hàng không thấy địa chỉ BCC – phù hợp để quản lý theo dõi và lưu trữ.')}
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${field('Tiền tố tiêu đề email', inp('survey_subject_prefix', c.survey_subject_prefix, 'placeholder="[Khảo sát]"'))}</div>
           ${chk('survey_include_internal', c.survey_include_internal === '1', 'Kèm mục nội bộ (Sales đánh giá) trong email')}
         </div>`)}
