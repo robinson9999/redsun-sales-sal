@@ -1003,7 +1003,7 @@
           <div class="h-1.5 w-12 rounded-full bg-redsun-700 mb-3"></div>
           <h3 class="font-extrabold text-slate-900">${esc(p.title)}</h3>
           <p class="text-sm text-slate-500 mt-1 flex-grow">${esc(p.description)}</p>
-          <p class="text-[11px] text-slate-400 mt-3">${p.slides} slide • cập nhật ${esc(p.updated.split('-').reverse().join('/'))}</p>
+          <p class="text-[11px] text-slate-400 mt-3">${p.version ? `<b class="text-slate-600">Phiên bản ${esc(p.version)}</b> • ` : ''}${p.slides} slide • cập nhật ${esc(p.updated.split('-').reverse().join('/'))}</p>
           <div class="flex flex-wrap gap-2 mt-4">
             <button data-present="${p.id}" class="${BTN_S}">▶ Trình chiếu</button>
             <button data-pdf="${p.id}" class="${BTN_S}">⬇ Xuất PDF</button>

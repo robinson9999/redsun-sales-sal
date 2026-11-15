@@ -6,11 +6,23 @@ export const PROPOSALS = [
     id: 'redsun-ai-crm',
     title: 'Redsun AI CRM – Đề xuất giải pháp 2026',
     short: 'Redsun AI CRM',
+    version: '2.7',
     description: 'Bán hàng, marketing tự động và chăm sóc khách hàng có AI trên nền tảng Redsun BOS. Gồm gói giá Starter / Business / Enterprise và điều kiện báo giá.',
     slides: 27,
     updated: '2026-11-15',
     email_subject: 'Redsun AI CRM – Đề xuất giải pháp cho {khach}',
     pdf_name: 'Redsun-AI-CRM-Proposal'
+  },
+  {
+    id: 'webino-ecommerce',
+    title: 'Thiết kế & triển khai Website Bán hàng',
+    short: 'Website Bán hàng',
+    version: '3.0',
+    description: 'Website bán hàng trên nền tảng Webino Builder: 16 tính năng cốt lõi, tính năng nâng cao, gói thuê bao Webino Shop / Growth / Enterprise, luồng đơn hàng, thanh toán & vận chuyển, đồng hành sau go-live.',
+    slides: 29,
+    updated: '2026-11-15',
+    email_subject: 'Redsun – Đề xuất thiết kế Website Bán hàng cho {khach}',
+    pdf_name: 'Redsun-Proposal-Website-Ban-hang'
   }
 ];
 export const getProposal = (id) => PROPOSALS.find((p) => p.id === id) || null;
