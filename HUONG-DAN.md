@@ -63,6 +63,8 @@ Mọi nhân viên đều dùng được. Mỗi proposal có 3 nút:
 
 **Thông tin tự điền vào proposal**: trang bìa ghi "Kính gửi" + người nhận + doanh nghiệp khách; slide cuối lấy họ tên, chức danh, **số điện thoại** và **email liên hệ** từ hồ sơ nhân viên (Admin nhập ở tab Nhân viên; email liên hệ để trống thì dùng email đăng nhập) và thông tin công ty ở tab ⚙ Cài đặt (tên đầy đủ, tên viết tắt, địa chỉ, điện thoại, hotline, email, website).
 
+**Mã QR gọi điện**: slide cuối (và ô "Quét mã QR đặt lịch" ở hai proposal website) tự tạo mã QR từ số điện thoại của chuyên viên; khách quét bằng điện thoại để gọi ngay. Hồ sơ chưa có số điện thoại thì mã QR dùng số tổng đài công ty.
+
 **Email gửi proposal**: tên người gửi là "[Tên nhân viên] - [Tên viết tắt công ty]". Chữ ký gồm: Tên - Chức danh; Số điện thoại - Email nhân viên; Tên công ty đầy đủ; Địa chỉ; Email công ty - Website.
 
 **Proposal đã gửi**: theo dõi trạng thái email, số lần khách mở đường dẫn (không tính khi nhân viên đang đăng nhập tự mở), sao chép link, gửi lại hoặc **Thu hồi** (khách mở sẽ thấy thông báo liên hệ chuyên viên). Nhân viên thấy của mình, Quản lý thấy cả cấp dưới, Admin thấy toàn bộ.

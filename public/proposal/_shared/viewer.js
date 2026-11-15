@@ -32,6 +32,22 @@
   });
   if (!locked && !embedded) body.classList.add('rs-edit');
 
+  /* ---------- Mã QR gọi điện: <img data-qr="sdt"> lấy số trong [data-field="sdt"] ---------- */
+  function drawQr() {
+    if (typeof window.qrcode !== 'function') return;
+    [].forEach.call(document.querySelectorAll('img[data-qr]'), function (img) {
+      var src = document.querySelector('[data-field="' + img.getAttribute('data-qr') + '"]');
+      var num = src ? src.textContent.replace(/[^\d+]/g, '') : '';
+      if (num.length < 8) { img.style.visibility = 'hidden'; return; }
+      try {
+        var qr = window.qrcode(0, 'M'); qr.addData('tel:' + num); qr.make();
+        img.src = qr.createDataURL(10, 2); img.alt = 'Mã QR gọi ' + num; img.style.visibility = '';
+      } catch (e) { img.style.visibility = 'hidden'; }
+    });
+  }
+  drawQr();
+  [].forEach.call(document.querySelectorAll('[data-field="sdt"]'), function (el) { el.addEventListener('blur', drawQr); });
+
   /* ---------- Điều hướng ---------- */
   function fit() { var s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080); deck.style.transform = 'scale(' + s + ')'; }
   function show(n) {

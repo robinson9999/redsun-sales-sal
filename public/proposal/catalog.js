@@ -15,24 +15,24 @@ export const PROPOSALS = [
   },
   {
     id: 'webino-ecommerce',
-    title: 'Thiết kế & triển khai Website Bán hàng',
-    short: 'Website Bán hàng',
+    title: 'Đề xuất giải pháp Thiết Kế & Triển khai Web Bán Hàng',
+    short: 'Web Bán Hàng',
     version: '3.0',
     description: 'Website bán hàng trên nền tảng Webino Builder: 16 tính năng cốt lõi, tính năng nâng cao, gói thuê bao Webino Shop / Growth / Enterprise, luồng đơn hàng, thanh toán & vận chuyển, đồng hành sau go-live.',
     slides: 29,
     updated: '2026-11-15',
-    email_subject: 'Redsun – Đề xuất thiết kế Website Bán hàng cho {khach}',
+    email_subject: 'Redsun – Đề xuất giải pháp Thiết Kế & Triển khai Web Bán Hàng cho {khach}',
     pdf_name: 'Redsun-Proposal-Website-Ban-hang'
   },
   {
     id: 'webino-doanh-nghiep',
-    title: 'Thiết kế & triển khai Website Doanh nghiệp',
-    short: 'Website Doanh nghiệp',
+    title: 'Đề xuất giải pháp Thiết Kế & Triển khai Web Doanh Nghiệp',
+    short: 'Web Doanh Nghiệp',
     version: '3.5',
     description: 'Website giới thiệu doanh nghiệp trên nền tảng Webino Builder: năm trang chính mở rộng theo nhu cầu, gói thuê bao Webino, gói bổ sung, tính năng nâng cao, quy trình triển khai bốn giai đoạn.',
     slides: 15,
     updated: '2026-11-15',
-    email_subject: 'Redsun – Đề xuất thiết kế Website Doanh nghiệp cho {khach}',
+    email_subject: 'Redsun – Đề xuất giải pháp Thiết Kế & Triển khai Web Doanh Nghiệp cho {khach}',
     pdf_name: 'Redsun-Proposal-Website-Doanh-nghiep'
   }
 ];
