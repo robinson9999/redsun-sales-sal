@@ -1003,7 +1003,7 @@
           <div class="h-1.5 w-12 rounded-full bg-redsun-700 mb-3"></div>
           <h3 class="font-extrabold text-slate-900">${esc(p.title)}</h3>
           <p class="text-sm text-slate-500 mt-1 flex-grow">${esc(p.description)}</p>
-          <p class="text-[11px] text-slate-400 mt-3">${p.version ? `<b class="text-slate-600">Phiên bản ${esc(p.version)}</b> • ` : ''}${p.slides} slide • cập nhật ${esc(p.updated.split('-').reverse().join('/'))}</p>
+          <p class="text-[11px] text-slate-400 mt-3">${p.version ? `Tài liệu v${esc(p.version)} • ` : ''}${p.slides} slide • cập nhật ${esc(p.updated.split('-').reverse().join('/'))}</p>
           <div class="flex flex-wrap gap-2 mt-4">
             <button data-present="${p.id}" class="${BTN_S}">▶ Trình chiếu</button>
             <button data-pdf="${p.id}" class="${BTN_S}">⬇ Xuất PDF</button>
@@ -1042,8 +1042,10 @@
         el.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => copyText(b.dataset.copy, b));
         el.querySelectorAll('[data-resend]').forEach((b) => b.onclick = async () => {
           if (!confirm('Gửi lại email proposal cho khách hàng này?')) return;
-          b.disabled = true;
-          try { const r = await api(`/api/proposals/shares/${b.dataset.resend}/send`, { method: 'POST', body: {} }); if (r.email_error) alert(r.email_error); renderProposal(); } catch (e) { alert(e.message); b.disabled = false; }
+          if (b.disabled) return;
+          b.disabled = true; b.textContent = 'Đang gửi...'; b.classList.add('cursor-wait');
+          try { const r = await api(`/api/proposals/shares/${b.dataset.resend}/send`, { method: 'POST', body: {} }); if (r.email_error) alert(r.email_error); renderProposal(); }
+          catch (e) { alert(e.message); b.disabled = false; b.textContent = 'Gửi lại'; b.classList.remove('cursor-wait'); }
         });
         el.querySelectorAll('[data-revoke]').forEach((b) => b.onclick = async () => {
           if (!confirm('Thu hồi đường dẫn? Khách sẽ không mở được proposal này nữa.')) return;
@@ -1134,7 +1136,12 @@
       e.preventDefault();
       const v = (id) => document.getElementById(id).value.trim();
       if (sendBox.checked && !v('sd-email')) return showErr('send-err', 'Nhập email khách hàng hoặc bỏ chọn "Gửi email ngay".');
-      goBtn.disabled = true;
+      if (goBtn.disabled) return;                           // chặn bấm lặp khi đang gửi
+      const label = goBtn.textContent;
+      goBtn.disabled = true; sendBox.disabled = true;
+      goBtn.classList.add('opacity-60', 'cursor-wait');
+      goBtn.textContent = sendBox.checked ? 'Đang gửi...' : 'Đang tạo đường dẫn...';
+      const cancel = document.querySelector('#send-form button[type="button"]'); if (cancel) cancel.disabled = true;
       try {
         const r = await api('/api/proposals/shares', { method: 'POST', body: { proposal_id: pid, customer_company: v('sd-company'), customer_name: v('sd-name'),
           customer_email: v('sd-email'), cc: v('sd-cc'), message: v('sd-msg'), days: +v('sd-days'), send_email: sendBox.checked } });
@@ -1148,7 +1155,11 @@
           </div>`);
         document.getElementById('sd-copy').onclick = (ev) => copyText(r.link, ev.target);
         renderProposal();
-      } catch (err) { showErr('send-err', err.message); goBtn.disabled = false; }
+      } catch (err) {
+        showErr('send-err', err.message);
+        goBtn.disabled = false; sendBox.disabled = !mailOk; goBtn.textContent = label; goBtn.classList.remove('opacity-60', 'cursor-wait');
+        if (cancel) cancel.disabled = false;
+      }
     };
   }
 })();

@@ -23,6 +23,17 @@ export const PROPOSALS = [
     updated: '2026-11-15',
     email_subject: 'Redsun – Đề xuất thiết kế Website Bán hàng cho {khach}',
     pdf_name: 'Redsun-Proposal-Website-Ban-hang'
+  },
+  {
+    id: 'webino-doanh-nghiep',
+    title: 'Thiết kế & triển khai Website Doanh nghiệp',
+    short: 'Website Doanh nghiệp',
+    version: '3.5',
+    description: 'Website giới thiệu doanh nghiệp trên nền tảng Webino Builder: năm trang chính mở rộng theo nhu cầu, gói thuê bao Webino, gói bổ sung, tính năng nâng cao, quy trình triển khai bốn giai đoạn.',
+    slides: 15,
+    updated: '2026-11-15',
+    email_subject: 'Redsun – Đề xuất thiết kế Website Doanh nghiệp cho {khach}',
+    pdf_name: 'Redsun-Proposal-Website-Doanh-nghiep'
   }
 ];
 export const getProposal = (id) => PROPOSALS.find((p) => p.id === id) || null;
