@@ -71,6 +71,13 @@ Mọi nhân viên đều dùng được. Mỗi proposal có 3 nút:
 
 **Thêm proposal mới**: đặt bộ trình chiếu vào `public/proposal/<mã>/` gồm `index.html` (nội bộ, có ghi chú trong thẻ `<aside>`), `client.html` (gửi khách, không có `<aside>`) và `assets/`, dùng chung `public/proposal/_shared/` (trình chiếu, xuất PDF, font). Sau đó khai báo một dòng trong `public/proposal/catalog.js`.
 
+## 6c. Tài liệu nội bộ (tab Tài liệu nội bộ)
+Mọi nhân viên đều đọc được; chỉ **Admin** đăng, sửa, xóa tài liệu.
+- **Đăng tài liệu** (Admin): bấm **＋ Đăng tài liệu**, nhập tên, nhóm tài liệu (chọn nhóm có sẵn hoặc gõ nhóm mới), mô tả và chọn file **PDF** (tối đa 25 MB). Bấm **Sửa** để đổi thông tin hoặc thay file; ngày sửa và người sửa được ghi lại.
+- **Đọc tài liệu**: tài liệu mở ngay trong tool, không có nút tải về hay in; mỗi trang có dấu chìm họ tên, email và thời điểm xem của người đang đọc; chuột phải, Ctrl/Cmd + S, P, C bị chặn. Lưu ý: không công cụ nào chặn được tuyệt đối việc chụp màn hình — dấu chìm giúp truy được người làm lộ.
+- **Lượt xem**: mỗi lần mở tài liệu tính một lượt (mở lại trong 10 phút không tính thêm). Mọi người thấy tổng lượt xem; Admin bấm **Lượt xem** để biết ai đã xem, bao nhiêu lần, lần đầu và lần gần nhất. Tài liệu chưa mở hiện nhãn **CHƯA ĐỌC**.
+- Tìm theo tên, mô tả; lọc theo nhóm.
+
 ## 7. Admin: Cài đặt hệ thống (tab ⚙ Cài đặt)
 Gồm 4 phần, bấm **Lưu cài đặt** ở cuối trang để lưu.
 

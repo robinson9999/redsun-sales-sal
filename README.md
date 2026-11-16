@@ -9,6 +9,7 @@
 - **Nhân viên**: Admin xem & quản lý toàn bộ; Quản lý chỉ xem cấp dưới của mình (mọi tầng).
 - **Phiếu khảo sát dự án**: Sales chọn phiếu, điền cùng khách, hoàn tất → lưu, gửi email tới danh sách cài sẵn, xuất PDF (bản gửi khách / bản nội bộ).
 - **Proposal**: danh sách proposal (hiện có Redsun AI CRM); trình chiếu có ghi chú bật/tắt, xuất PDF không ghi chú, gửi khách qua email bằng đường dẫn `/p/<mã>/` (bản không ghi chú, có hạn dùng, thu hồi được, đếm lượt xem).
+- **Tài liệu nội bộ**: Admin đăng PDF theo nhóm kèm mô tả; nhân viên chỉ đọc trong tool (pdf.js vẽ lên canvas, dấu chìm tên người xem, không có nút tải/in); ghi lại từng lượt xem. File lưu trong D1 thành các khúc 1 MB (bảng `doc_chunks`).
 - **Cài đặt hệ thống** (chỉ Admin): máy chủ SMTP gửi email (gửi thử), email nhận phiếu To/CC/BCC, bảo mật đăng nhập. Gửi qua thư viện `worker-mailer` (cổng 465/587; Cloudflare chặn cổng 25).
 
 > Repo private. Không commit mật khẩu, danh sách tài khoản thật (đã chặn trong `.gitignore`).

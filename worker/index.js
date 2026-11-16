@@ -141,6 +141,33 @@ async function ensureSchema(env) {
       first_viewed_at INTEGER,
       last_viewed_at INTEGER)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_pshare_user ON proposal_shares(user_id, created_at)`),
+    // Tài liệu nội bộ: file PDF lưu thành nhiều khúc ≤ 1 MB trong D1 (giới hạn 2 MB/dòng), chỉ xem trong tool
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS docs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      group_name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      file_name TEXT,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      chunks INTEGER NOT NULL DEFAULT 0,
+      file_rev INTEGER NOT NULL DEFAULT 0,
+      created_by INTEGER REFERENCES users(id),
+      created_at INTEGER NOT NULL,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at INTEGER NOT NULL,
+      file_updated_at INTEGER)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS doc_chunks (
+      doc_id INTEGER NOT NULL REFERENCES docs(id),
+      rev INTEGER NOT NULL,
+      seq INTEGER NOT NULL,
+      data BLOB NOT NULL,
+      PRIMARY KEY (doc_id, rev, seq))`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS doc_views (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      doc_id INTEGER NOT NULL REFERENCES docs(id),
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      viewed_at INTEGER NOT NULL)`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_docview_doc ON doc_views(doc_id, user_id, viewed_at)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_users_manager ON users(manager_id)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_kpis_period ON kpis(year, month)`)
   ]);
@@ -382,6 +409,16 @@ async function canViewSurvey(env, me, row) {
   return row.user_id === me.id || me.app_role === 'admin' || (me.app_role === 'manager' && (await subtreeIds(env, me.id)).has(row.user_id));
 }
 
+/* ---------------------------- Tài liệu nội bộ ---------------------------- */
+const DOC_MAX_MB = 25, DOC_CHUNK = 1024 * 1024;
+function docMeta(b) {
+  const title = String(b.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  const group_name = String(b.group_name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const description = String(b.description ?? '').trim().slice(0, 2000);
+  if (!title) return { error: 'Chưa nhập tên tài liệu.' };
+  return { title, group_name, description };
+}
+
 /* ---------------------------- Proposal ---------------------------- */
 const escH = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -513,7 +550,7 @@ async function api(req, env, url, me, ctx) {
   if (method !== 'GET' && method !== 'HEAD') {
     const origin = req.headers.get('origin');
     if (origin && new URL(origin).host !== url.host) return bad('Yêu cầu không hợp lệ.', 403);
-    if (method !== 'DELETE') {   // DELETE không cần nội dung; vẫn được chặn khác nguồn bằng kiểm tra Origin ở trên
+    if (method !== 'DELETE' && !/^\/api\/docs\/\d+\/file$/.test(p)) {   // DELETE và tải file PDF (nội dung nhị phân) không đọc JSON; vẫn chặn khác nguồn ở trên
       if (!(req.headers.get('content-type') || '').includes('application/json')) return bad('Yêu cầu không hợp lệ.', 415);
       try { body = await req.json(); } catch { return bad('Dữ liệu không hợp lệ.'); }
     }
@@ -851,6 +888,92 @@ async function api(req, env, url, me, ctx) {
       await env.DB.prepare('DELETE FROM survey_responses WHERE id=?1').bind(id).run();
       return json({ ok: true });
     }
+  }
+
+  /* ----- Tài liệu nội bộ (PDF chỉ đọc trong tool, ghi lại lượt xem) ----- */
+  if (p === '/api/docs' && method === 'GET') {
+    const r = await env.DB.prepare(`SELECT d.id, d.title, d.group_name, d.description, d.file_name, d.file_size, d.chunks, d.file_rev,
+        d.created_at, d.updated_at, d.file_updated_at, cu.name AS created_by_name, uu.name AS updated_by_name,
+        (SELECT COUNT(*) FROM doc_views v WHERE v.doc_id = d.id) AS views,
+        (SELECT COUNT(DISTINCT v.user_id) FROM doc_views v WHERE v.doc_id = d.id) AS viewers,
+        (SELECT MAX(v.viewed_at) FROM doc_views v WHERE v.doc_id = d.id AND v.user_id = ?1) AS my_last_view
+      FROM docs d LEFT JOIN users cu ON cu.id = d.created_by LEFT JOIN users uu ON uu.id = d.updated_by
+      ORDER BY d.group_name COLLATE NOCASE, d.updated_at DESC`).bind(me.id).all();
+    return json({ docs: r.results, can_manage: me.app_role === 'admin', max_mb: DOC_MAX_MB });
+  }
+  if (p === '/api/docs' && method === 'POST') {
+    if (me.app_role !== 'admin') return bad('Chỉ Admin được đăng tài liệu.', 403);
+    const v = docMeta(body); if (v.error) return bad(v.error);
+    const t = now();
+    const r = await env.DB.prepare(`INSERT INTO docs (title, group_name, description, created_by, created_at, updated_by, updated_at) VALUES (?1,?2,?3,?4,?5,?4,?5)`)
+      .bind(v.title, v.group_name, v.description, me.id, t).run();
+    return json({ ok: true, id: r.meta.last_row_id });
+  }
+  m = p.match(/^\/api\/docs\/(\d+)$/);
+  if (m && (method === 'PUT' || method === 'DELETE')) {
+    if (me.app_role !== 'admin') return bad('Chỉ Admin được sửa tài liệu.', 403);
+    const id = +m[1];
+    const d = await env.DB.prepare('SELECT id FROM docs WHERE id=?1').bind(id).first();
+    if (!d) return bad('Không tìm thấy tài liệu.', 404);
+    if (method === 'DELETE') {
+      await env.DB.batch([env.DB.prepare('DELETE FROM doc_chunks WHERE doc_id=?1').bind(id), env.DB.prepare('DELETE FROM doc_views WHERE doc_id=?1').bind(id),
+        env.DB.prepare('DELETE FROM docs WHERE id=?1').bind(id)]);
+      return json({ ok: true });
+    }
+    const v = docMeta(body); if (v.error) return bad(v.error);
+    await env.DB.prepare('UPDATE docs SET title=?1, group_name=?2, description=?3, updated_by=?4, updated_at=?5 WHERE id=?6')
+      .bind(v.title, v.group_name, v.description, me.id, now(), id).run();
+    return json({ ok: true });
+  }
+  m = p.match(/^\/api\/docs\/(\d+)\/file$/);
+  if (m && method === 'PUT') {                      // Admin tải lên / thay file PDF (nội dung nhị phân)
+    if (me.app_role !== 'admin') return bad('Chỉ Admin được tải tài liệu lên.', 403);
+    const id = +m[1];
+    const d = await env.DB.prepare('SELECT id, file_rev FROM docs WHERE id=?1').bind(id).first();
+    if (!d) return bad('Không tìm thấy tài liệu.', 404);
+    if (!/application\/pdf/.test(req.headers.get('content-type') || '')) return bad('Chỉ nhận file PDF.', 415);
+    const declared = +(req.headers.get('content-length') || 0);
+    if (declared > DOC_MAX_MB * 1048576) return bad(`File vượt quá ${DOC_MAX_MB} MB.`, 413);
+    const buf = new Uint8Array(await req.arrayBuffer());
+    if (!buf.length) return bad('File rỗng.');
+    if (buf.length > DOC_MAX_MB * 1048576) return bad(`File vượt quá ${DOC_MAX_MB} MB.`, 413);
+    if (String.fromCharCode(...buf.subarray(0, 5)) !== '%PDF-') return bad('File không phải PDF hợp lệ.');
+    const rev = d.file_rev + 1, n = Math.ceil(buf.length / DOC_CHUNK);
+    const name = String(decodeURIComponent(req.headers.get('x-file-name') || 'tai-lieu.pdf')).replace(/[\r\n"\\/]/g, '').slice(0, 160);
+    const ins = [];
+    for (let k = 0; k < n; k++) ins.push(env.DB.prepare('INSERT INTO doc_chunks (doc_id, rev, seq, data) VALUES (?1,?2,?3,?4)').bind(id, rev, k, buf.subarray(k * DOC_CHUNK, (k + 1) * DOC_CHUNK)));
+    for (let k = 0; k < ins.length; k += 10) await env.DB.batch(ins.slice(k, k + 10));      // ghi khúc mới trước, đổi bản sau cùng
+    const t = now();
+    await env.DB.batch([
+      env.DB.prepare('UPDATE docs SET file_name=?1, file_size=?2, chunks=?3, file_rev=?4, file_updated_at=?5, updated_at=?5, updated_by=?6 WHERE id=?7').bind(name, buf.length, n, rev, t, me.id, id),
+      env.DB.prepare('DELETE FROM doc_chunks WHERE doc_id=?1 AND rev<>?2').bind(id, rev)]);
+    return json({ ok: true, size: buf.length });
+  }
+  if (m && method === 'GET') {                      // Đọc file để hiển thị trong trình xem (không có nút tải); mỗi lần mở là 1 lượt xem
+    const id = +m[1];
+    const d = await env.DB.prepare('SELECT id, chunks, file_rev, file_size FROM docs WHERE id=?1').bind(id).first();
+    if (!d || !d.chunks) return bad('Tài liệu chưa có file.', 404);
+    const r = await env.DB.prepare('SELECT data FROM doc_chunks WHERE doc_id=?1 AND rev=?2 ORDER BY seq').bind(id, d.file_rev).all();
+    const parts = r.results.map((row) => row.data instanceof ArrayBuffer ? new Uint8Array(row.data) : Uint8Array.from(row.data));
+    if (parts.length !== d.chunks || parts.reduce((a, b) => a + b.length, 0) !== d.file_size) return bad('File tài liệu bị lỗi, Admin cần tải lại.', 500);
+    const out = new ReadableStream({ start(c) { for (const b of parts) c.enqueue(b); c.close(); } });
+    if (url.searchParams.get('view') === '1') {
+      const t = now();   // không ghi trùng khi cùng người mở lại trong 10 phút
+      const last = await env.DB.prepare('SELECT MAX(viewed_at) AS t FROM doc_views WHERE doc_id=?1 AND user_id=?2').bind(id, me.id).first();
+      if (!last || !last.t || t - last.t > 600) await env.DB.prepare('INSERT INTO doc_views (doc_id, user_id, viewed_at) VALUES (?1,?2,?3)').bind(id, me.id, t).run();
+    }
+    return new Response(out, { headers: { 'content-type': 'application/octet-stream', 'content-length': String(d.file_size), 'cache-control': 'private, no-store', 'content-disposition': 'inline', 'x-content-type-options': 'nosniff' } });
+  }
+  m = p.match(/^\/api\/docs\/(\d+)\/views$/);
+  if (m && method === 'GET') {
+    if (me.app_role !== 'admin') return bad('Chỉ Admin xem được thống kê lượt xem.', 403);
+    const id = +m[1];
+    const [by, recent] = await Promise.all([
+      env.DB.prepare(`SELECT u.id, u.name, u.email, COUNT(*) AS views, MIN(v.viewed_at) AS first_at, MAX(v.viewed_at) AS last_at
+        FROM doc_views v JOIN users u ON u.id = v.user_id WHERE v.doc_id=?1 GROUP BY u.id ORDER BY last_at DESC`).bind(id).all(),
+      env.DB.prepare(`SELECT u.name, v.viewed_at FROM doc_views v JOIN users u ON u.id = v.user_id WHERE v.doc_id=?1 ORDER BY v.viewed_at DESC LIMIT 200`).bind(id).all()]);
+    const total = by.results.reduce((a, x) => a + x.views, 0);
+    return json({ total, viewers: by.results, recent: recent.results });
   }
 
   /* ----- Proposal ----- */

@@ -190,6 +190,7 @@
     if (t === 'kpi') renderKpi();
     if (t === 'survey') renderSurvey();
     if (t === 'proposal') renderProposal();
+    if (t === 'docs') renderDocs();
     if (t === 'settings') renderSettings();
     if (t === 'assign') renderAssign();
     if (t === 'staff') renderStaff(true);
@@ -1161,5 +1162,247 @@
         if (cancel) cancel.disabled = false;
       }
     };
+  }
+
+  /* =========================================================================
+     TRANG: TÀI LIỆU NỘI BỘ – Admin đăng PDF; nhân viên chỉ đọc trong tool (không tải về), mỗi lần mở được ghi lại
+     ========================================================================= */
+  const DOC = { data: null, q: '', group: '' };
+  const docEl = () => document.getElementById('tab-docs');
+  const fmtSize = (b) => b >= 1048576 ? (b / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
+  const fmtDT2 = (ts) => ts ? new Date(ts * 1000).toLocaleString('vi-VN', { hour12: false, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const noAccent = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+
+  async function renderDocs() {
+    const el = docEl(); el.innerHTML = loading;
+    try {
+      const d = await api('/api/docs'); DOC.data = d;
+      const groups = [...new Set(d.docs.map((x) => x.group_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+      if (DOC.group && !groups.includes(DOC.group)) DOC.group = '';
+      el.innerHTML = pageHead('Tài liệu nội bộ', 'Chỉ đọc trong tool, không tải về. Mỗi lần mở tài liệu đều được ghi lại.',
+          d.can_manage ? `<button id="doc-add" class="${BTN_P}">＋ Đăng tài liệu</button>` : '')
+        + `<div class="flex flex-col sm:flex-row gap-3 mb-5">
+            <input id="doc-q" value="${esc(DOC.q)}" placeholder="Tìm tên, mô tả tài liệu…" class="${inputCls} sm:max-w-sm">
+            <select id="doc-g" class="${inputCls} sm:max-w-xs"><option value="">Tất cả nhóm (${d.docs.length})</option>${groups.map((g) => `<option ${g === DOC.group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
+          </div><div id="doc-list" class="space-y-6"></div>`;
+      const draw = () => {
+        const q = noAccent(DOC.q.trim());
+        const rows = d.docs.filter((x) => (!DOC.group || x.group_name === DOC.group) && (!q || noAccent(x.title + ' ' + x.description + ' ' + x.group_name).includes(q)));
+        const by = {};
+        rows.forEach((x) => { (by[x.group_name || ''] = by[x.group_name || ''] || []).push(x); });
+        const keys = Object.keys(by).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b, 'vi'));
+        document.getElementById('doc-list').innerHTML = keys.length ? keys.map((g) => `<section>
+            <h3 class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">${esc(g || 'Chưa phân nhóm')} <span class="text-slate-400">· ${by[g].length}</span></h3>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${by[g].map(docCard).join('')}</div></section>`).join('')
+          : card(`<div class="p-10 text-center text-slate-400 text-sm">${d.docs.length ? 'Không có tài liệu phù hợp.' : (d.can_manage ? 'Chưa có tài liệu. Bấm "Đăng tài liệu" để thêm file PDF đầu tiên.' : 'Chưa có tài liệu nào.')}</div>`);
+        el.querySelectorAll('[data-read]').forEach((b) => b.onclick = () => openDocViewer(d.docs.find((x) => x.id === +b.dataset.read)));
+        el.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => openDocForm(d.docs.find((x) => x.id === +b.dataset.edit)));
+        el.querySelectorAll('[data-views]').forEach((b) => b.onclick = () => openDocViews(d.docs.find((x) => x.id === +b.dataset.views)));
+        el.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+          const x = d.docs.find((y) => y.id === +b.dataset.del);
+          if (!confirm(`Xóa tài liệu "${x.title}"? File và lịch sử lượt xem sẽ bị xóa.`)) return;
+          try { await api(`/api/docs/${x.id}`, { method: 'DELETE' }); renderDocs(); } catch (e) { alert(e.message); }
+        });
+      };
+      const docCard = (x) => card(`<div class="p-4 flex gap-4 h-full">
+          <div class="shrink-0 w-11 h-14 rounded-md bg-redsun-50 border border-redsun-100 flex items-center justify-center text-[11px] font-extrabold text-redsun-700">PDF</div>
+          <div class="min-w-0 flex-grow flex flex-col">
+            <div class="flex items-start gap-2"><h4 class="font-bold text-slate-900 leading-snug">${esc(x.title)}</h4>${x.chunks && !x.my_last_view ? '<span class="shrink-0 px-1.5 py-0.5 rounded bg-gold-100 text-amber-800 text-[10px] font-bold">CHƯA ĐỌC</span>' : ''}</div>
+            ${x.description ? `<p class="text-sm text-slate-600 mt-1 whitespace-pre-line">${esc(x.description)}</p>` : ''}
+            <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">Đăng ${fmtDate(x.created_at)}${x.created_by_name ? ' · ' + esc(x.created_by_name) : ''}
+              ${x.updated_at > x.created_at + 60 ? ` • Sửa ${fmtDate(x.updated_at)}${x.updated_by_name ? ' · ' + esc(x.updated_by_name) : ''}` : ''}
+              ${x.chunks ? ` • ${fmtSize(x.file_size)}` : ' • <span class="text-redsun-700 font-semibold">chưa có file</span>'} • 👁 ${x.views} lượt xem${x.viewers ? ` (${x.viewers} người)` : ''}</p>
+            <div class="flex flex-wrap gap-2 mt-3">
+              ${x.chunks ? `<button data-read="${x.id}" class="${BTN_P} !py-1.5">Đọc tài liệu</button>` : ''}
+              ${d.can_manage ? `<button data-edit="${x.id}" class="${BTN_S} !py-1.5">Sửa</button><button data-views="${x.id}" class="${BTN_S} !py-1.5">Lượt xem</button><button data-del="${x.id}" class="text-xs text-slate-500 hover:text-redsun-700 px-2">Xóa</button>` : ''}
+            </div></div></div>`, 'h-full');
+      draw();
+      document.getElementById('doc-q').oninput = (e) => { DOC.q = e.target.value; draw(); };
+      document.getElementById('doc-g').onchange = (e) => { DOC.group = e.target.value; draw(); };
+      const add = document.getElementById('doc-add'); if (add) add.onclick = () => openDocForm(null);
+    } catch (e) { el.innerHTML = errorCard(e.message); }
+  }
+
+  // Admin: đăng mới / sửa thông tin / thay file PDF
+  function openDocForm(x) {
+    const d = DOC.data, groups = [...new Set(d.docs.map((y) => y.group_name).filter(Boolean))];
+    openModal(`${modalHead(x ? 'Sửa tài liệu' : 'Đăng tài liệu', `File PDF, tối đa ${d.max_mb} MB. Nhân viên chỉ đọc trong tool, không tải về.`)}
+      <form id="doc-form" class="px-6 py-5 space-y-3">
+        ${field('Tên tài liệu *', `<input id="df-title" required maxlength="200" value="${esc(x ? x.title : '')}" class="${inputCls}">`)}
+        ${field('Nhóm tài liệu', `<input id="df-group" maxlength="80" list="df-groups" value="${esc(x ? x.group_name : '')}" placeholder="VD: Quy trình bán hàng, Chính sách, Đào tạo sản phẩm" class="${inputCls}"><datalist id="df-groups">${groups.map((g) => `<option value="${esc(g)}">`).join('')}</datalist>`, 'Chọn nhóm có sẵn hoặc gõ tên nhóm mới.')}
+        ${field('Mô tả', `<textarea id="df-desc" rows="3" maxlength="2000" class="${inputCls}">${esc(x ? x.description : '')}</textarea>`)}
+        ${field(x ? 'Thay file PDF (để trống nếu giữ file cũ)' : 'File PDF *', `<input id="df-file" type="file" accept="application/pdf,.pdf" ${x ? '' : 'required'} class="block w-full text-sm text-slate-600 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-slate-100 file:font-semibold">`,
+          x && x.chunks ? `File hiện tại: ${esc(x.file_name || '')} (${fmtSize(x.file_size)}), cập nhật ${fmtDT2(x.file_updated_at)}` : '')}
+        <div id="df-prog" class="hidden"><div class="h-2 rounded-full bg-slate-100 overflow-hidden"><div id="df-bar" class="h-2 bg-redsun-700" style="width:0%"></div></div><p id="df-txt" class="text-xs text-slate-500 mt-1"></p></div>
+        ${errBox('df-err')}
+        <div class="flex justify-end gap-2 pt-2"><button type="button" id="df-cancel" onclick="closeModal()" class="${BTN_S}">Hủy</button><button id="df-go" class="${BTN_P}">${x ? 'Lưu' : 'Đăng tài liệu'}</button></div>
+      </form>`);
+    document.getElementById('doc-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const v = (id) => document.getElementById(id).value.trim();
+      const file = document.getElementById('df-file').files[0];
+      if (file && (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf')) return showErr('df-err', 'Chỉ nhận file PDF.');
+      if (file && file.size > d.max_mb * 1048576) return showErr('df-err', `File ${fmtSize(file.size)} vượt quá ${d.max_mb} MB.`);
+      const go = document.getElementById('df-go'), lbl = go.textContent;
+      go.disabled = true; document.getElementById('df-cancel').disabled = true; go.textContent = 'Đang lưu...';
+      let id = x && x.id, created = false;
+      try {
+        const meta = { title: v('df-title'), group_name: v('df-group'), description: document.getElementById('df-desc').value.trim() };
+        if (x) await api(`/api/docs/${id}`, { method: 'PUT', body: meta });
+        else { id = (await api('/api/docs', { method: 'POST', body: meta })).id; created = true; }
+        if (file) {
+          go.textContent = 'Đang tải file...';
+          document.getElementById('df-prog').classList.remove('hidden');
+          await uploadPdf(id, file, (pct) => {
+            document.getElementById('df-bar').style.width = pct + '%';
+            document.getElementById('df-txt').textContent = pct < 100 ? `Đang tải lên ${pct}%…` : 'Đang lưu file…';
+          });
+        }
+        closeModal(); renderDocs();
+      } catch (err) {
+        if (created) { try { await api(`/api/docs/${id}`, { method: 'DELETE' }); } catch (e2) { /* bỏ qua */ } }
+        showErr('df-err', err.message);
+        go.disabled = false; go.textContent = lbl; document.getElementById('df-cancel').disabled = false;
+      }
+    };
+  }
+  function uploadPdf(id, file, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', `/api/docs/${id}/file`);
+      xhr.setRequestHeader('content-type', 'application/pdf');
+      xhr.setRequestHeader('x-file-name', encodeURIComponent(file.name));
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100)); };
+      xhr.onload = () => {
+        let d = {}; try { d = JSON.parse(xhr.responseText); } catch (e) { /* bỏ qua */ }
+        if (xhr.status >= 200 && xhr.status < 300) resolve(d); else reject(new Error(d.error || `Tải file thất bại (mã ${xhr.status}).`));
+      };
+      xhr.onerror = () => reject(new Error('Mất kết nối khi tải file. Vui lòng thử lại.'));
+      xhr.send(file);
+    });
+  }
+
+  // Admin: ai đã xem, bao nhiêu lần
+  async function openDocViews(x) {
+    openModal(`${modalHead('Lượt xem – ' + esc(x.title))}<div id="dv-body" class="px-6 py-5">${loading}</div>`);
+    try {
+      const r = await api(`/api/docs/${x.id}/views`);
+      document.getElementById('dv-body').innerHTML = `
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="p-3 rounded-xl bg-slate-50"><p class="text-[11px] font-bold text-slate-500 uppercase">Tổng lượt xem</p><p class="text-2xl font-extrabold text-slate-900">${r.total}</p></div>
+          <div class="p-3 rounded-xl bg-slate-50"><p class="text-[11px] font-bold text-slate-500 uppercase">Số người đã xem</p><p class="text-2xl font-extrabold text-slate-900">${r.viewers.length}</p></div>
+        </div>
+        ${r.viewers.length ? `<div class="overflow-x-auto max-h-[50vh] overflow-y-auto"><table class="w-full text-sm"><thead class="bg-slate-50 text-[11px] uppercase text-slate-500 sticky top-0"><tr>
+            <th class="py-2 px-3 text-left">Nhân viên</th><th class="py-2 px-3 text-right">Số lần</th><th class="py-2 px-3 text-left">Lần đầu</th><th class="py-2 px-3 text-left">Gần nhất</th></tr></thead>
+          <tbody class="divide-y divide-slate-100">${r.viewers.map((u) => `<tr><td class="py-2 px-3"><b class="text-slate-900">${esc(u.name)}</b><br><span class="text-[11px] text-slate-400">${esc(u.email)}</span></td>
+            <td class="py-2 px-3 text-right font-bold">${u.views}</td><td class="py-2 px-3 text-xs">${fmtDT2(u.first_at)}</td><td class="py-2 px-3 text-xs">${fmtDT2(u.last_at)}</td></tr>`).join('')}</tbody></table></div>`
+          : '<p class="text-sm text-slate-400 text-center py-6">Chưa có ai xem tài liệu này.</p>'}
+        <p class="text-[11px] text-slate-400 mt-3">Mỗi lần mở tài liệu tính một lượt; mở lại trong vòng 10 phút không tính thêm.</p>`;
+    } catch (e) { document.getElementById('dv-body').innerHTML = `<p class="text-sm text-redsun-800">${esc(e.message)}</p>`; }
+  }
+
+  /* ---------- Trình đọc PDF: vẽ từng trang lên canvas, có dấu chìm tên người xem, chặn tải/in/sao chép ---------- */
+  let pdfjsLib = null;
+  async function loadPdfJs() {
+    if (!pdfjsLib) {
+      pdfjsLib = await import('/vendor/pdfjs/pdf.min.mjs');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs';
+    }
+    return pdfjsLib;
+  }
+  function watermarkUrl(text) {
+    const t = text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="460" height="260"><text x="230" y="130" text-anchor="middle" transform="rotate(-28 230 130)" font-family="Arial, sans-serif" font-size="15" fill="rgba(15,23,42,0.13)">${t}</text></svg>`;
+    return `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}")`;
+  }
+  function closeDocViewer() {
+    const v = document.getElementById('doc-viewer'); if (!v) return;
+    if (v._cleanup) v._cleanup();
+    v.remove(); document.body.classList.remove('doc-viewing');
+    if (!document.getElementById('tab-docs').classList.contains('hidden')) renderDocs();   // cập nhật lượt xem, bỏ nhãn "Chưa đọc"
+  }
+  async function openDocViewer(x) {
+    closeDocViewer();
+    if (!document.getElementById('doc-viewer-css')) {
+      const st = document.createElement('style'); st.id = 'doc-viewer-css';
+      st.textContent = `body.doc-viewing{overflow:hidden}
+        #doc-viewer{position:fixed;inset:0;z-index:70;background:#1e293b;display:flex;flex-direction:column;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+        #doc-viewer canvas{display:block;width:100%;height:auto;pointer-events:none}
+        #doc-viewer .dv-page{position:relative;margin:0 auto 16px;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+        #doc-viewer .dv-wm{position:absolute;inset:0;pointer-events:none;background-repeat:repeat}
+        @media print{body.doc-viewing *{display:none!important}body.doc-viewing::after{content:"Tài liệu nội bộ – không được in.";display:block!important;padding:40px;font:16px Arial}}`;
+      document.head.appendChild(st);
+    }
+    const wm = `${S.me.name} · ${S.me.email} · ${fmtDT2(Math.floor(Date.now() / 1000))}`;
+    const v = document.createElement('div'); v.id = 'doc-viewer'; v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', x.title);
+    v.innerHTML = `<div class="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2.5 bg-slate-900 text-white shrink-0">
+        <div class="min-w-0 flex-grow"><p class="font-bold truncate">${esc(x.title)}</p><p class="text-[11px] text-slate-400 truncate">Tài liệu nội bộ · chỉ đọc · lượt xem của bạn đã được ghi lại</p></div>
+        <span id="dv-page" class="text-xs text-slate-300 whitespace-nowrap"></span>
+        <button id="dv-out" class="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 font-bold" title="Thu nhỏ" aria-label="Thu nhỏ">−</button>
+        <button id="dv-fit" class="hidden sm:block px-2 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold" title="Vừa chiều ngang">Vừa khung</button>
+        <button id="dv-in" class="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 font-bold" title="Phóng to" aria-label="Phóng to">+</button>
+        <button id="dv-close" class="w-9 h-9 rounded-lg bg-redsun-700 hover:bg-redsun-800 font-bold text-lg leading-none" title="Đóng (Esc)" aria-label="Đóng">×</button></div>
+      <div id="dv-scroll" class="flex-grow overflow-auto py-4 px-2 sm:px-6"><p id="dv-status" class="text-center text-slate-300 text-sm py-20">Đang mở tài liệu…</p></div>`;
+    document.body.appendChild(v); document.body.classList.add('doc-viewing');
+    const block = (e) => e.preventDefault();
+    const keys = (e) => {
+      if (e.key === 'Escape') { closeDocViewer(); return; }
+      if ((e.ctrlKey || e.metaKey) && ['s', 'p', 'c', 'a', 'u'].includes(e.key.toLowerCase())) { e.preventDefault(); e.stopPropagation(); }
+    };
+    v.addEventListener('contextmenu', block); v.addEventListener('dragstart', block); v.addEventListener('copy', block);
+    document.addEventListener('keydown', keys, true);
+    let pdf = null, task = null, observer = null, zoom = 1, closed = false;
+    v._cleanup = () => { closed = true; document.removeEventListener('keydown', keys, true); if (observer) observer.disconnect(); try { if (task) task.destroy(); } catch (e) { /* bỏ qua */ } };
+    document.getElementById('dv-close').onclick = closeDocViewer;
+    try {
+      const [lib, res] = await Promise.all([loadPdfJs(), fetch(`/api/docs/${x.id}/file?view=1`, { credentials: 'same-origin', cache: 'no-store' })]);
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Không mở được tài liệu.'); }
+      const data = new Uint8Array(await res.arrayBuffer());
+      if (closed) return;
+      task = lib.getDocument({ data, cMapUrl: '/vendor/pdfjs/cmaps/', cMapPacked: true, standardFontDataUrl: '/vendor/pdfjs/standard_fonts/', isEvalSupported: false, enableXfa: false });
+      pdf = await task.promise;
+      if (closed) return;
+      const scroll = document.getElementById('dv-scroll'); scroll.innerHTML = '';
+      const first = await pdf.getPage(1), base = first.getViewport({ scale: 1 });
+      const fitW = () => Math.min(1100, scroll.clientWidth - (window.innerWidth < 640 ? 16 : 48));
+      const pages = [];
+      for (let n = 1; n <= pdf.numPages; n++) {
+        const box = document.createElement('div'); box.className = 'dv-page'; box.dataset.n = n;
+        box.innerHTML = `<canvas></canvas><div class="dv-wm" style="background-image:${watermarkUrl(wm)}"></div>`;
+        scroll.appendChild(box); pages.push(box);
+      }
+      const layout = () => {
+        const w = Math.round(fitW() * zoom);
+        pages.forEach((b) => { b.style.width = w + 'px'; b.style.height = Math.round(w * base.height / base.width) + 'px'; b.dataset.done = ''; });
+        pages.forEach((b) => { if (b.getBoundingClientRect().top < window.innerHeight * 2) render(b); });
+      };
+      const render = async (b) => {
+        if (b.dataset.done === String(zoom) || closed) return;
+        b.dataset.done = String(zoom);
+        const page = await pdf.getPage(+b.dataset.n);
+        const w = b.clientWidth, vp1 = page.getViewport({ scale: 1 });
+        const scale = (w / vp1.width) * Math.min(2, window.devicePixelRatio || 1);
+        const vp = page.getViewport({ scale });
+        const c = b.querySelector('canvas'); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+        b.style.height = Math.round(w * vp1.height / vp1.width) + 'px';
+        try { await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; } catch (e) { /* trang lỗi: bỏ qua */ }
+      };
+      observer = new IntersectionObserver((ents) => ents.forEach((en) => { if (en.isIntersecting) render(en.target); }), { root: scroll, rootMargin: '1200px 0px' });
+      pages.forEach((b) => observer.observe(b));
+      const pageLbl = document.getElementById('dv-page');
+      const upd = () => { const mid = scroll.scrollTop + scroll.clientHeight / 3; let cur = 1; pages.forEach((b) => { if (b.offsetTop <= mid) cur = +b.dataset.n; }); pageLbl.textContent = `Trang ${cur} / ${pdf.numPages}`; };
+      scroll.addEventListener('scroll', upd, { passive: true });
+      const setZoom = (z) => { const r = scroll.scrollTop / (scroll.scrollHeight || 1); zoom = Math.max(0.5, Math.min(3, z)); layout(); scroll.scrollTop = r * scroll.scrollHeight; upd(); };
+      document.getElementById('dv-in').onclick = () => setZoom(zoom + 0.25);
+      document.getElementById('dv-out').onclick = () => setZoom(zoom - 0.25);
+      document.getElementById('dv-fit').onclick = () => setZoom(1);
+      const onResize = () => { if (!closed) layout(); };
+      window.addEventListener('resize', onResize);
+      const prev = v._cleanup; v._cleanup = () => { window.removeEventListener('resize', onResize); prev(); };
+      layout(); upd();
+      x.my_last_view = Math.floor(Date.now() / 1000);
+    } catch (e) {
+      const s = document.getElementById('dv-status'); if (s) s.textContent = e.message || 'Không mở được tài liệu.';
+    }
   }
 })();
