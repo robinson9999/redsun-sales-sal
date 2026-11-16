@@ -8,7 +8,7 @@ export const PROPOSALS = [
     short: 'Redsun AI CRM',
     version: '2.7',
     description: 'Bán hàng, marketing tự động và chăm sóc khách hàng có AI trên nền tảng Redsun BOS. Gồm gói giá Starter / Business / Enterprise và điều kiện báo giá.',
-    slides: 32,
+    slides: 30,
     updated: '2026-11-15',
     email_subject: 'Redsun AI CRM – Đề xuất giải pháp cho {khach}',
     pdf_name: 'Redsun-AI-CRM-Proposal'
