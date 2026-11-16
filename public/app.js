@@ -1229,7 +1229,12 @@
     openModal(`${modalHead(x ? 'Sửa tài liệu' : 'Đăng tài liệu', `File PDF, tối đa ${d.max_mb} MB. Nhân viên chỉ đọc trong tool, không tải về.`)}
       <form id="doc-form" class="px-6 py-5 space-y-3">
         ${field('Tên tài liệu *', `<input id="df-title" required maxlength="200" value="${esc(x ? x.title : '')}" class="${inputCls}">`)}
-        ${field('Nhóm tài liệu', `<input id="df-group" maxlength="80" list="df-groups" value="${esc(x ? x.group_name : '')}" placeholder="VD: Quy trình bán hàng, Chính sách, Đào tạo sản phẩm" class="${inputCls}"><datalist id="df-groups">${groups.map((g) => `<option value="${esc(g)}">`).join('')}</datalist>`, 'Chọn nhóm có sẵn hoặc gõ tên nhóm mới.')}
+        ${field('Nhóm tài liệu', `<select id="df-gsel" class="${inputCls}">
+            <option value="">— Chưa phân nhóm —</option>
+            ${groups.sort((a, b) => a.localeCompare(b, 'vi')).map((g) => `<option value="${esc(g)}" ${x && x.group_name === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}
+            <option value="__new__" ${groups.length ? '' : 'selected'}>＋ Thêm nhóm mới…</option></select>
+          <input id="df-gnew" maxlength="80" placeholder="Nhập tên nhóm mới, VD: Quy trình bán hàng" class="${inputCls} mt-2 ${groups.length ? 'hidden' : ''}">`,
+          groups.length ? 'Chọn nhóm có sẵn, hoặc chọn "＋ Thêm nhóm mới…" để tạo nhóm.' : 'Chưa có nhóm nào — nhập tên nhóm đầu tiên (có thể để trống).')}
         ${field('Mô tả', `<textarea id="df-desc" rows="3" maxlength="2000" class="${inputCls}">${esc(x ? x.description : '')}</textarea>`)}
         ${field(x ? 'Thay file PDF (để trống nếu giữ file cũ)' : 'File PDF *', `<input id="df-file" type="file" accept="application/pdf,.pdf" ${x ? '' : 'required'} class="block w-full text-sm text-slate-600 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-slate-100 file:font-semibold">`,
           x && x.chunks ? `File hiện tại: ${esc(x.file_name || '')} (${fmtSize(x.file_size)}), cập nhật ${fmtDT2(x.file_updated_at)}` : '')}
@@ -1237,9 +1242,15 @@
         ${errBox('df-err')}
         <div class="flex justify-end gap-2 pt-2"><button type="button" id="df-cancel" onclick="closeModal()" class="${BTN_S}">Hủy</button><button id="df-go" class="${BTN_P}">${x ? 'Lưu' : 'Đăng tài liệu'}</button></div>
       </form>`);
+    const gSel = document.getElementById('df-gsel'), gNew = document.getElementById('df-gnew');
+    gSel.onchange = () => { const nw = gSel.value === '__new__'; gNew.classList.toggle('hidden', !nw); if (nw) gNew.focus(); };
     document.getElementById('doc-form').onsubmit = async (e) => {
       e.preventDefault();
       const v = (id) => document.getElementById(id).value.trim();
+      if (gSel.value === '__new__' && v('df-gnew')) {           // gõ trùng tên nhóm đã có (khác hoa/thường) thì dùng nhóm đó
+        const same = groups.find((g) => g.toLocaleLowerCase('vi') === v('df-gnew').replace(/\s+/g, ' ').toLocaleLowerCase('vi'));
+        if (same) { gSel.value = same; gNew.classList.add('hidden'); }
+      }
       const file = document.getElementById('df-file').files[0];
       if (file && (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf')) return showErr('df-err', 'Chỉ nhận file PDF.');
       if (file && file.size > d.max_mb * 1048576) return showErr('df-err', `File ${fmtSize(file.size)} vượt quá ${d.max_mb} MB.`);
@@ -1247,7 +1258,8 @@
       go.disabled = true; document.getElementById('df-cancel').disabled = true; go.textContent = 'Đang lưu...';
       let id = x && x.id, created = false;
       try {
-        const meta = { title: v('df-title'), group_name: v('df-group'), description: document.getElementById('df-desc').value.trim() };
+        const gsel = document.getElementById('df-gsel').value;
+        const meta = { title: v('df-title'), group_name: gsel === '__new__' ? v('df-gnew') : gsel, description: document.getElementById('df-desc').value.trim() };
         if (x) await api(`/api/docs/${id}`, { method: 'PUT', body: meta });
         else { id = (await api('/api/docs', { method: 'POST', body: meta })).id; created = true; }
         if (file) {
