@@ -13,12 +13,12 @@ const PBKDF2_ITER = 50000;               // Workers giới hạn tối đa 100.0
 
 // Tham số chức danh (đồng bộ với ROLES trong public/index.html)
 const TITLES = {
-  cco:    { name: 'Giám đốc kinh doanh (CCO)',          cb: 0.4, X: 5,  mgr: true },
-  sm:     { name: 'Trưởng phòng kinh doanh (SM)',       cb: 0.4, X: 6,  mgr: true },
-  tl:     { name: 'Trưởng nhóm kinh doanh (Team Lead)', cb: 0.4, X: 10, mgr: true },
-  senior: { name: 'Chuyên viên kinh doanh (Senior)',    cb: 0.5, X: 10 },
-  sales:  { name: 'Nhân viên kinh doanh (Sales Exec)',  cb: 0.5, X: 10 },
-  intern: { name: 'Tập sự kinh doanh (Fresher)',        cb: 0.5, X: 10 },
+  cco:    { name: 'Giám đốc kinh doanh (CCO)',          cb: 0.4, X: 5,  mgr: true, en: 'Chief Commercial Officer' },
+  sm:     { name: 'Trưởng phòng kinh doanh (SM)',       cb: 0.4, X: 6,  mgr: true, en: 'Sales Manager' },
+  tl:     { name: 'Trưởng nhóm kinh doanh (Team Lead)', cb: 0.4, X: 10, mgr: true, en: 'Sales Team Lead' },
+  senior: { name: 'Chuyên viên kinh doanh (Senior)',    cb: 0.5, X: 10, en: 'Senior Sales Consultant' },
+  sales:  { name: 'Nhân viên kinh doanh (Sales Exec)',  cb: 0.5, X: 10, en: 'Sales Executive' },
+  intern: { name: 'Tập sự kinh doanh (Fresher)',        cb: 0.5, X: 10, en: 'Sales Associate' },
   ctv:    { name: 'Cộng tác viên (CTV)',                cb: 0,   X: 0 },
   other:  { name: 'Khác (không thuộc khối KD)',         cb: 0,   X: 0 }
 };
@@ -261,6 +261,8 @@ const SETTING_DEFAULTS = {
   // Thông tin công ty: hiện ở slide cuối proposal, tên người gửi và chữ ký email
   company_short: 'Redsun', company_address: 'Tầng 7, 159 Điện Biên Phủ, P. Gia Định, TP.HCM',
   company_phone: '(+84-28) 7301 5630', company_hotline: '', company_email: 'kinhdoanh@redsun.vn', company_website: 'redsun.vn',
+  // Bản tiếng Anh (dùng cho proposal EN; để trống = dùng bản tiếng Việt)
+  company_name_en: 'Redsun Technology Investment Company', company_address_en: '7th Floor, 159 Dien Bien Phu, Gia Dinh Ward, Ho Chi Minh City, Vietnam',
   smtp_host: '', smtp_port: '587', smtp_security: 'starttls', smtp_user: '', smtp_pass: '',
   smtp_from_email: '', smtp_from_name: 'Redsun Sales',
   survey_recipients: '', survey_cc: '', survey_bcc: '', survey_cc_sales: '1', survey_include_internal: '1',
@@ -423,6 +425,7 @@ function docMeta(b) {
 const escH = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const fmtDay = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : '';
+const fmtDayEn = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: 'numeric', month: 'long', year: 'numeric' }) : '';
 const FIELD_KEYS = { kh: 160, nguoi: 120, tv: 80, cv: 80, sdt: 40, email: 120, ct: 160, ctdc: 200, ctdt: 100, cthl: 40, ctemail: 120, ctweb: 120 };
 function cleanFields(f) {
   const out = {};
@@ -442,14 +445,21 @@ async function canSeeShare(env, me, row) {
   return row.user_id === me.id || me.app_role === 'admin' || (me.app_role === 'manager' && (await subtreeIds(env, me.id)).has(row.user_id));
 }
 // Thông tin điền vào proposal: nhân viên (từ hồ sơ trong tab Nhân viên) + công ty (tab Cài đặt) + khách hàng
-const staffTitle = (u) => u.title && u.title !== 'other' && TITLES[u.title] ? TITLES[u.title].name.replace(/\s*\(.*\)$/, '') : 'Chuyên viên tư vấn';
+const staffTitle = (u, lang = 'vi') => {
+  const t = u.title && u.title !== 'other' && TITLES[u.title];
+  if (lang === 'en') return t ? t.en : 'Solution Consultant';
+  return t ? t.name.replace(/\s*\(.*\)$/, '') : 'Chuyên viên tư vấn';
+};
 const staffEmail = (u) => parseEmails(u.contact_email || '')[0] || parseEmails(u.email || '')[0] || '';
-function proposalFields(cfg, u, extra = {}) {
+const propLang = (p) => (p && p.lang === 'en' ? 'en' : 'vi');
+function proposalFields(cfg, u, extra = {}, lang = 'vi') {
+  const en = lang === 'en';
   const phoneLine = [cfg.company_phone, cfg.company_hotline ? 'Hotline ' + cfg.company_hotline : ''].filter(Boolean).join(' · ');
   return cleanFields({
     ...extra,
-    tv: u.name, cv: staffTitle(u), sdt: u.phone || '', email: staffEmail(u),
-    ct: cfg.company_name, ctdc: cfg.company_address, ctdt: phoneLine, cthl: cfg.company_hotline || cfg.company_phone,
+    tv: u.name, cv: staffTitle(u, lang), sdt: u.phone || '', email: staffEmail(u),
+    ct: (en && cfg.company_name_en) || cfg.company_name, ctdc: (en && cfg.company_address_en) || cfg.company_address,
+    ctdt: phoneLine, cthl: cfg.company_hotline || cfg.company_phone,
     ctemail: cfg.company_email, ctweb: cfg.company_website
   });
 }
@@ -474,21 +484,40 @@ async function emailProposal(env, url, row, owner) {
   const cc = [...new Set([...(ownerEmail ? [ownerEmail] : []), ...parseEmails(row.cc), ...parseEmails(cfg.survey_cc)])].filter((e) => !to.includes(e));
   const bcc = [...new Set(parseEmails(cfg.survey_bcc))].filter((e) => !to.includes(e) && !cc.includes(e));
   const link = shareLink(url, row.token);
-  const khach = row.customer_company || row.customer_name || 'Quý khách';
+  const en = propLang(p) === 'en';
+  const name = (p.short || '').replace(/\s*\((VN|EN)\)$/, '');
+  const co = cfg.company_short || cfg.company_name;
+  const khach = row.customer_company || row.customer_name || (en ? 'your company' : 'Quý khách');
   const subject = (p.email_subject || p.title).replace(/\{khach\}/g, khach).slice(0, 200);
-  const greet = row.customer_name ? `Kính gửi ${row.customer_name},` : 'Kính gửi Quý khách,';
-  const msg = row.message || `Cảm ơn Quý khách đã quan tâm đến giải pháp của ${cfg.company_short || cfg.company_name}. Chúng tôi xin gửi Quý khách bản đề xuất ${p.short} để tham khảo.`;
+  const day = en ? fmtDayEn(row.expires_at) : fmtDay(row.expires_at);
+  const T = en ? {
+    greet: row.customer_name ? `Dear ${row.customer_name},` : 'Dear Sir/Madam,',
+    msg: `Thank you for your interest in ${co}'s solutions. Please find our ${name} proposal for your review.`,
+    btn: `View the ${name} proposal`,
+    note: `On the proposal page you can present it or click <b>Download PDF</b> to save a copy. The link is valid until <b>${day}</b>.`,
+    alt: 'If the button does not work, open this link:', bye: 'Best regards,',
+    textLink: `View the ${name} proposal`, textNote: `The link is valid until ${day}. Use the Download PDF button on the page to save a copy.`
+  } : {
+    greet: row.customer_name ? `Kính gửi ${row.customer_name},` : 'Kính gửi Quý khách,',
+    msg: `Cảm ơn Quý khách đã quan tâm đến giải pháp của ${co}. Chúng tôi xin gửi Quý khách bản đề xuất ${name} để tham khảo.`,
+    btn: `Xem đề xuất ${name}`,
+    note: `Trên trang đề xuất, Quý khách có thể trình chiếu hoặc bấm <b>Tải PDF</b> để lưu bản PDF. Đường dẫn có hiệu lực đến <b>${day}</b>.`,
+    alt: 'Nếu nút không hoạt động, Quý khách mở đường dẫn:', bye: 'Trân trọng,',
+    textLink: `Xem đề xuất ${name}`, textNote: `Đường dẫn có hiệu lực đến ${day}. Trên trang có nút Tải PDF.`
+  };
+  const greet = T.greet;
+  const msg = row.message || T.msg;
   const sign = proposalSignature(cfg, f);
-  const fromName = `${f.tv || owner.name} - ${cfg.company_short || cfg.company_name}`.replace(/["\r\n]/g, '').slice(0, 120);
+  const fromName = `${f.tv || owner.name} - ${co}`.replace(/["\r\n]/g, '').slice(0, 120);
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#0f172a;max-width:600px">
     <p style="margin:0 0 14px">${escH(greet)}</p>
     ${msg.split(/\n+/).map((x) => `<p style="margin:0 0 12px">${escH(x)}</p>`).join('')}
-    <p style="margin:22px 0"><a href="${link}" style="display:inline-block;background:#BA0000;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 26px;border-radius:8px">Xem đề xuất ${escH(p.short)}</a></p>
-    <p style="margin:0 0 6px;font-size:13px;color:#475569">Trên trang đề xuất, Quý khách có thể trình chiếu hoặc bấm <b>Tải PDF</b> để lưu bản PDF. Đường dẫn có hiệu lực đến <b>${fmtDay(row.expires_at)}</b>.</p>
-    <p style="margin:0 0 18px;font-size:13px;color:#475569">Nếu nút không hoạt động, Quý khách mở đường dẫn: <a href="${link}">${link}</a></p>
-    <p style="margin:0">Trân trọng,</p>
+    <p style="margin:22px 0"><a href="${link}" style="display:inline-block;background:#BA0000;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 26px;border-radius:8px">${escH(T.btn)}</a></p>
+    <p style="margin:0 0 6px;font-size:13px;color:#475569">${T.note}</p>
+    <p style="margin:0 0 18px;font-size:13px;color:#475569">${T.alt} <a href="${link}">${link}</a></p>
+    <p style="margin:0">${T.bye}</p>
     <div style="margin:10px 0 0;padding-top:10px;border-top:3px solid #EDAD32;font-size:14px;line-height:1.55;color:#334155">${sign.map((x, k) => k === 0 ? `<b style="color:#003049">${escH(x)}</b>` : k === 2 ? `<b style="color:#BA0000">${escH(x)}</b>` : escH(x)).join('<br>')}</div></div>`;
-  const text = `${greet}\n\n${msg}\n\nXem đề xuất ${p.short}: ${link}\nĐường dẫn có hiệu lực đến ${fmtDay(row.expires_at)}. Trên trang có nút Tải PDF.\n\nTrân trọng,\n${sign.join('\n')}`;
+  const text = `${greet}\n\n${msg}\n\n${T.textLink}: ${link}\n${T.textNote}\n\n${T.bye}\n${sign.join('\n')}`;
   let status, error = null;
   if (!to.length) { status = 'no_recipients'; error = 'Chưa có email khách hàng hợp lệ.'; }
   else {
@@ -520,11 +549,14 @@ async function servePublicProposal(req, env, url, me) {
   if (row.revoked || row.expires_at < now()) {
     const f = JSON.parse(row.fields || '{}');
     const who = [f.tv || row.user_name, f.sdt, f.email || row.user_email].filter(Boolean).map(escH).join(' · ');
-    const page = `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escH(p.title)}</title></head>
+    const en = propLang(p) === 'en';
+    const h1 = en ? `This proposal link has ${row.revoked ? 'been withdrawn' : 'expired'}` : `Đường dẫn đề xuất đã ${row.revoked ? 'được thu hồi' : 'hết hạn'}`;
+    const sub = en ? 'Please contact your consultant for the latest version of the proposal.' : 'Vui lòng liên hệ chuyên viên tư vấn để nhận bản đề xuất mới nhất.';
+    const page = `<!DOCTYPE html><html lang="${en ? 'en' : 'vi'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escH(p.title)}</title></head>
       <body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#003049;color:#F7F5F0;font-family:Arial,Helvetica,sans-serif;padding:24px">
       <div style="max-width:560px"><div style="width:56px;height:6px;background:#EDAD32;margin-bottom:20px"></div>
-      <h1 style="font-size:26px;margin:0 0 12px">Đường dẫn đề xuất đã ${row.revoked ? 'được thu hồi' : 'hết hạn'}</h1>
-      <p style="font-size:16px;line-height:1.6;color:#C9D6DE;margin:0 0 16px">Vui lòng liên hệ chuyên viên tư vấn để nhận bản đề xuất mới nhất.</p>
+      <h1 style="font-size:26px;margin:0 0 12px">${h1}</h1>
+      <p style="font-size:16px;line-height:1.6;color:#C9D6DE;margin:0 0 16px">${sub}</p>
       <p style="font-size:16px;line-height:1.6;margin:0">${who}</p></div></body></html>`;
     return withHeaders(new Response(page, { status: 410, headers: { 'content-type': 'text/html; charset=utf-8' } }), noStore);
   }
@@ -795,7 +827,7 @@ async function api(req, env, url, me, ctx) {
       const b = body || {}, upd = {};
       const str = (v, n) => String(v ?? '').trim().slice(0, n);
       if ('company_name' in b) { const v = str(b.company_name, 120); if (!v) return bad('Chưa nhập tên công ty.'); upd.company_name = v; }
-      for (const [k, n] of [['company_short', 60], ['company_address', 200], ['company_phone', 40], ['company_hotline', 40], ['company_website', 120]]) if (k in b) upd[k] = str(b[k], n);
+      for (const [k, n] of [['company_short', 60], ['company_address', 200], ['company_name_en', 120], ['company_address_en', 200],['company_phone', 40], ['company_hotline', 40], ['company_website', 120]]) if (k in b) upd[k] = str(b[k], n);
       if ('company_email' in b) { const v = normEmail(b.company_email); if (v && !parseEmails(v).length) return bad('Email công ty không hợp lệ.'); upd.company_email = v; }
       if ('smtp_host' in b) { const v = str(b.smtp_host, 200); if (v && !/^[a-z0-9.-]+$/i.test(v)) return bad('Máy chủ SMTP không hợp lệ.'); upd.smtp_host = v; }
       if ('smtp_port' in b) { const v = parseInt(b.smtp_port, 10); if (!(v > 0 && v < 65536)) return bad('Cổng SMTP không hợp lệ.'); if (v === 25) return bad('Cloudflare chặn cổng 25. Dùng 587 hoặc 465.'); upd.smtp_port = String(v); }
@@ -988,7 +1020,7 @@ async function api(req, env, url, me, ctx) {
         WHERE ${where} ORDER BY s.created_at DESC LIMIT 300`).bind(...binds).all();
     const cfg = await getSettings(env);
     return json({ proposals: PROPOSALS, shares: r.results.map((x) => shareView(x, url)), mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg),
-      fields: proposalFields(cfg, me), from_name: `${me.name} - ${cfg.company_short || cfg.company_name}` });
+      fields: proposalFields(cfg, me), fields_en: proposalFields(cfg, me, {}, 'en'), from_name: `${me.name} - ${cfg.company_short || cfg.company_name}` });
   }
   if (p === '/api/proposals/shares' && method === 'POST') {
     const prop = getProposal(body.proposal_id);
@@ -1000,7 +1032,7 @@ async function api(req, env, url, me, ctx) {
     if (send && !emails.length) return bad('Email khách hàng không hợp lệ.');
     if (emails.length > 5 || cc.length > 10) return bad('Tối đa 5 email nhận và 10 email CC.');
     const days = intSetting(body.days, 30, 1, 90);
-    const fields = proposalFields(await getSettings(env), me, { kh: customer_company, nguoi: customer_name });
+    const fields = proposalFields(await getSettings(env), me, { kh: customer_company, nguoi: customer_name }, propLang(prop));
     const token = b64(crypto.getRandomValues(new Uint8Array(24))).replace(/[+/=]/g, (c) => ({ '+': '-', '/': '_', '=': '' }[c]));
     const t = now();
     const r = await env.DB.prepare(`INSERT INTO proposal_shares (token,proposal_id,user_id,customer_company,customer_name,customer_email,cc,message,fields,created_at,expires_at)

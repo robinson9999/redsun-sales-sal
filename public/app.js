@@ -901,7 +901,9 @@
           <div class="sm:col-span-2">${field('Địa chỉ', inp('company_address', c.company_address))}</div>
           ${field('Điện thoại', inp('company_phone', c.company_phone))}
           ${field('Hotline', inp('company_hotline', c.company_hotline))}
-          ${field('Email công ty', inp('company_email', c.company_email, 'type="email"'))}</div>`)}
+          ${field('Email công ty', inp('company_email', c.company_email, 'type="email"'))}
+          <div class="sm:col-span-2">${field('Tên công ty (tiếng Anh – dùng cho proposal EN)', inp('company_name_en', c.company_name_en))}</div>
+          <div class="sm:col-span-2">${field('Địa chỉ (tiếng Anh – dùng cho proposal EN)', inp('company_address_en', c.company_address_en))}</div></div>`)}
         ${sec(`2. Máy chủ gửi email (SMTP) ${status}`, 'Dùng để gửi email phiếu khảo sát. Cloudflare chặn cổng 25 – dùng cổng 465 (SSL/TLS) hoặc 587 (STARTTLS).', `
           <div class="flex flex-wrap items-center gap-2 mb-4"><span class="text-xs text-slate-500">Điền nhanh:</span>${Object.entries(SMTP_PRESETS).map(([k, v]) => `<button data-preset="${k}" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold">${v.label}</button>`).join('')}</div>
           <div id="cf-hint" class="hidden mb-4 p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900"></div>
@@ -954,7 +956,7 @@
       v('smtp_security').onchange = () => { const s2 = v('smtp_security').value; if (s2 === 'ssl') v('smtp_port').value = 465; if (s2 === 'starttls') v('smtp_port').value = 587; };
       const collect = () => {
         const b = {};
-        for (const k of ['company_name', 'company_short', 'company_website', 'company_address', 'company_phone', 'company_hotline', 'company_email', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes', 'idle_minutes', 'login_notify_bcc', 'login_notify_subject']) b[k] = v(k).value;
+        for (const k of ['company_name', 'company_short', 'company_website', 'company_address', 'company_name_en', 'company_address_en', 'company_phone', 'company_hotline', 'company_email', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from_email', 'smtp_from_name', 'survey_cc', 'survey_bcc', 'survey_subject_prefix', 'session_days', 'max_fails', 'lock_minutes', 'idle_minutes', 'login_notify_bcc', 'login_notify_subject']) b[k] = v(k).value;
         b.survey_include_internal = v('survey_include_internal').checked; b.login_notify = v('login_notify').checked;
         if (v('smtp_pass').value) b.smtp_pass = v('smtp_pass').value;
         if (v('pass_clear') && v('pass_clear').checked) b.smtp_pass_clear = true;
@@ -989,7 +991,8 @@
   const prEl = () => document.getElementById('tab-proposal');
   const fmtDT = (ts) => ts ? new Date(ts * 1000).toLocaleString('vi-VN', { hour12: false, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
   // Thông tin nhân viên (hồ sơ trong tab Nhân viên) + công ty (tab Cài đặt) – máy chủ trả về sẵn
-  const prMe = () => ({ ...((PR.data && PR.data.fields) || {}) });
+  const prLang = (pid) => { const p = PR.data && PR.data.proposals.find((x) => x.id === pid); return p && p.lang === 'en' ? 'en' : 'vi'; };
+  const prMe = (pid) => ({ ...((PR.data && (pid && prLang(pid) === 'en' ? PR.data.fields_en : PR.data.fields)) || {}) });
   const prQuery = (f) => new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
   const shareStatus = (s) => s.revoked ? ['Đã thu hồi', 'bg-slate-200 text-slate-600'] : s.expired ? ['Hết hạn', 'bg-slate-200 text-slate-600']
     : s.views ? ['Khách đã xem', 'bg-emerald-100 text-emerald-800'] : (STATUS[s.email_status] || ['Đã tạo link', 'bg-blue-100 text-blue-800']);
@@ -1022,7 +1025,7 @@
               <th class="py-2.5 px-3 text-left">Khách hàng</th><th class="py-2.5 px-3 text-left">Proposal</th>${many ? '<th class="py-2.5 px-3 text-left">Sales</th>' : ''}
               <th class="py-2.5 px-3 text-left">Trạng thái</th><th class="py-2.5 px-3 text-left">Lượt xem</th><th class="py-2.5 px-3 text-left">Hiệu lực đến</th><th></th></tr></thead>
               <tbody id="pr-rows" class="divide-y divide-slate-100"></tbody></table></div>`)}</div>`;
-      el.querySelectorAll('[data-present]').forEach((b) => b.onclick = () => window.open(`/proposal/${b.dataset.present}/?${prQuery(prMe())}`, '_blank'));
+      el.querySelectorAll('[data-present]').forEach((b) => b.onclick = () => window.open(`/proposal/${b.dataset.present}/?${prQuery(prMe(b.dataset.present))}`, '_blank'));
       el.querySelectorAll('[data-pdf]').forEach((b) => b.onclick = () => openPdfModal(b.dataset.pdf));
       el.querySelectorAll('[data-send]').forEach((b) => b.onclick = () => openSendModal(b.dataset.send));
       const drawRows = () => {
@@ -1091,7 +1094,7 @@
           ${field('Người nhận', `<input id="pdf-nguoi" maxlength="120" class="${inputCls}" placeholder="Anh Nguyễn Văn Minh – Giám đốc">`)}
           ${field('Doanh nghiệp khách hàng', `<input id="pdf-kh" maxlength="160" class="${inputCls}" placeholder="Công ty Cổ phần ABC">`)}
         </div>
-        <p class="text-xs text-slate-500">Slide cuối ghi chuyên viên: <b>${esc([prMe().tv, prMe().sdt].filter(Boolean).join(' • '))}</b> (theo hồ sơ nhân viên).</p>
+        <p class="text-xs text-slate-500">Slide cuối ghi chuyên viên: <b>${esc([prMe(pid).tv, prMe(pid).sdt].filter(Boolean).join(' • '))}</b> (theo hồ sơ nhân viên).</p>
         <div id="pdf-prog" class="hidden"><div class="h-2 rounded-full bg-slate-100 overflow-hidden"><div id="pdf-bar" class="h-2 bg-redsun-700" style="width:0%"></div></div><p id="pdf-txt" class="text-xs text-slate-500 mt-1"></p></div>
         ${errBox('pdf-err')}
         <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="${BTN_S}">Đóng</button><button id="pdf-go" class="${BTN_P}">Tạo PDF</button></div>
@@ -1101,7 +1104,7 @@
       const go = document.getElementById('pdf-go'); go.disabled = true;
       document.getElementById('pdf-prog').classList.remove('hidden');
       try {
-        const { blob, name } = await buildPdf(pid, { ...prMe(), kh: document.getElementById('pdf-kh').value.trim(), nguoi: document.getElementById('pdf-nguoi').value.trim() }, (k, n) => {
+        const { blob, name } = await buildPdf(pid, { ...prMe(pid), kh: document.getElementById('pdf-kh').value.trim(), nguoi: document.getElementById('pdf-nguoi').value.trim() }, (k, n) => {
           document.getElementById('pdf-bar').style.width = Math.round(k / n * 100) + '%';
           document.getElementById('pdf-txt').textContent = k < n ? `Đang tạo trang ${k + 1}/${n}…` : 'Hoàn tất.';
         });
@@ -1113,7 +1116,7 @@
     };
   }
   function openSendModal(pid) {
-    const p = PR.data.proposals.find((x) => x.id === pid), mailOk = PR.data.mail_ready, me = prMe();
+    const p = PR.data.proposals.find((x) => x.id === pid), mailOk = PR.data.mail_ready, me = prMe(pid);
     openModal(`${modalHead('Gửi khách hàng – ' + esc(p.short), 'Khách nhận đường dẫn xem proposal (không có ghi chú) và tự tải PDF trên trang.')}
       <form id="send-form" class="px-6 py-5 space-y-3">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1122,7 +1125,7 @@
         </div>
         ${field('Email khách hàng' + (mailOk ? ' *' : ''), `<input id="sd-email" type="text" class="${inputCls}" placeholder="khachhang@congty.vn">`, 'Nhiều email: cách nhau bằng dấu phẩy.')}
         ${field('CC thêm (tùy chọn)', `<input id="sd-cc" class="${inputCls}" placeholder="truongphong@redsun.vn">`, `Bạn (${esc(me.email)}) luôn nhận bản CC; khách trả lời sẽ về email của bạn.`)}
-        ${field('Lời nhắn', `<textarea id="sd-msg" rows="4" maxlength="2000" class="${inputCls}">Cảm ơn Quý khách đã dành thời gian trao đổi với Redsun. Em xin gửi Quý khách bản đề xuất ${esc(p.short)} để tham khảo. Nếu cần trao đổi thêm, Quý khách vui lòng liên hệ em theo thông tin bên dưới.</textarea>`)}
+        ${field('Lời nhắn', `<textarea id="sd-msg" rows="4" maxlength="2000" class="${inputCls}">${prLang(pid) === 'en' ? `Thank you for taking the time to speak with Redsun. Please find attached our ${esc(p.short.replace(/\s*\(EN\)$/, ''))} proposal for your review. If you have any questions, please feel free to contact me using the details below.` : `Cảm ơn Quý khách đã dành thời gian trao đổi với Redsun. Em xin gửi Quý khách bản đề xuất ${esc(p.short.replace(/\s*\(VN\)$/, ''))} để tham khảo. Nếu cần trao đổi thêm, Quý khách vui lòng liên hệ em theo thông tin bên dưới.`}</textarea>`)}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
           ${field('Đường dẫn có hiệu lực', `<select id="sd-days" class="${inputCls}"><option value="7">7 ngày</option><option value="14">14 ngày</option><option value="30" selected>30 ngày (bằng hiệu lực báo giá)</option><option value="60">60 ngày</option><option value="90">90 ngày</option></select>`)}
           <label class="flex items-center gap-2 text-sm text-slate-700 pb-2"><input id="sd-send" type="checkbox" ${mailOk ? 'checked' : 'disabled'} class="w-4 h-4"> Gửi email ngay cho khách</label>

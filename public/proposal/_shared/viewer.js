@@ -16,6 +16,9 @@
   var q = new URLSearchParams(location.search);
   var embedded = q.get('embed') === '1';
   var locked = !!window.RS_LOCKED;
+  var EN = (document.documentElement.lang || '').slice(0, 2) === 'en';
+  var TX = EN ? { edit: 'Click to edit', notes: 'SPEAKER NOTES – PAGE ', none: '(No notes)', making: 'Creating PDF ', fail: 'Could not create the PDF: ', hint: '\nYou can use Ctrl/Cmd + P → Save as PDF.', call: 'QR code to call ' }
+    : { edit: 'Bấm để sửa', notes: 'GHI CHÚ – TRANG ', none: '(Không có ghi chú)', making: 'Đang tạo PDF ', fail: 'Không tạo được PDF: ', hint: '\nCó thể dùng Ctrl/Cmd + P → Lưu thành PDF.', call: 'Mã QR gọi ' };
   var i = 0;
 
   /* ---------- Thông tin điền sẵn ---------- */
@@ -26,7 +29,7 @@
     if (v) el.textContent = String(v).slice(0, 200);
     if (el.hasAttribute('data-hide-empty') && !el.textContent.trim()) { el.style.display = 'none'; return; }
     if (!locked && !embedded) {
-      el.contentEditable = 'true'; el.spellcheck = false; el.title = 'Bấm để sửa';
+      el.contentEditable = 'true'; el.spellcheck = false; el.title = TX.edit;
       el.addEventListener('click', function (e) { e.stopPropagation(); });
     }
   });
@@ -41,7 +44,7 @@
       if (num.length < 8) { img.style.visibility = 'hidden'; return; }
       try {
         var qr = window.qrcode(0, 'M'); qr.addData('tel:' + num); qr.make();
-        img.src = qr.createDataURL(10, 2); img.alt = 'Mã QR gọi ' + num; img.style.visibility = '';
+        img.src = qr.createDataURL(10, 2); img.alt = TX.call + num; img.style.visibility = '';
       } catch (e) { img.style.visibility = 'hidden'; }
     });
   }
@@ -54,7 +57,7 @@
     i = Math.max(0, Math.min(slides.length - 1, n));
     slides.forEach(function (el, k) { el.classList.toggle('active', k === i); });
     if (count) count.textContent = (i + 1) + ' / ' + slides.length;
-    if (notes) { var a = slides[i].querySelector('aside'); notes.innerHTML = '<b>GHI CHÚ – TRANG ' + (i + 1) + '</b>'; notes.appendChild(document.createTextNode(a ? a.textContent : '(Không có ghi chú)')); }
+    if (notes) { var a = slides[i].querySelector('aside'); notes.innerHTML = '<b>' + TX.notes + (i + 1) + '</b>'; notes.appendChild(document.createTextNode(a ? a.textContent : TX.none)); }
     if (!embedded && location.hash !== '#' + (i + 1)) history.replaceState(null, '', location.pathname + location.search + '#' + (i + 1));
   }
   function go(d) { show(i + d); }
@@ -137,10 +140,10 @@
     body.classList.add('rs-busy');
     if (b) b.disabled = true;
     try {
-      var blob = await exportPdf(function (k, n) { if (b) b.textContent = 'Đang tạo PDF ' + Math.min(k + 1, n) + '/' + n; });
+      var blob = await exportPdf(function (k, n) { if (b) b.textContent = TX.making + Math.min(k + 1, n) + '/' + n; });
       var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = pdfName();
       document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
-    } catch (e) { alert('Không tạo được PDF: ' + (e && e.message || e) + '\nCó thể dùng Ctrl/Cmd + P → Lưu thành PDF.'); }
+    } catch (e) { alert(TX.fail + (e && e.message || e) + TX.hint); }
     finally { if (b) { b.disabled = false; b.textContent = label; } body.classList.remove('rs-busy'); }
   }
   window.RS = { exportPdf: exportPdf, downloadPdf: downloadPdf, pdfName: pdfName, count: slides.length, show: show };
