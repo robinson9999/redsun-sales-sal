@@ -8,6 +8,7 @@
 import { WorkerMailer } from 'worker-mailer';
 import { getTemplate, sanitizeAnswers, validateAnswers, renderReport, renderText, surveyTitle } from '../public/survey-lib.js';
 import { PROPOSALS, getProposal } from '../public/proposal/catalog.js';
+import { SALES_TITLES, BUILTIN_FORMULA, BUILTIN_PARAMS, TEMPLATES, NONE_FORMULA, cleanConfig, cleanParams, defaultParams, templatesPublic } from './formulas.js';
 
 const PBKDF2_ITER = 50000;               // Workers giới hạn tối đa 100.000; 50.000 để vừa CPU gói miễn phí
 
@@ -24,53 +25,60 @@ const TITLES = {
 };
 const APP_ROLES = ['admin', 'manager', 'staff'];
 
-/* Công thức lương, thưởng, KPI theo phòng ban. Mỗi phòng ban chọn một công thức.
-   - Công thức có danh sách chức danh cố định (titles) thì chức danh của phòng lấy theo công thức.
-   - Công thức không có danh sách (titles = null) thì Admin tự tạo chức danh cho phòng.
-   Thêm công thức mới cho phòng ban khác: khai báo ở đây và trong FORMULA_UI (public/app.js). */
-const SALES_TITLES = ['cco', 'sm', 'tl', 'senior', 'sales', 'intern', 'ctv'];
-const FORMULAS = {
-  sales: { name: 'Lương 3P – Khối Kinh doanh', kpi: true, titles: SALES_TITLES,
-    desc: 'Tổng lương W = Lương cơ bản (A) + Lương hiệu suất tối đa (H). Thu nhập = A + B (lương hiệu suất theo % đạt KPI doanh số) + C₁ (thưởng doanh số cá nhân lũy tiến) + C₂ (thưởng quản lý theo % đạt của đơn vị). KPI doanh số = H × hệ số X. Cộng tác viên hưởng hoa hồng lũy tiến, không có lương cố định.' },
-  none: { name: 'Chưa có công thức', kpi: false, titles: null,
-    desc: 'Phòng ban này chưa có công thức tính lương, thưởng, KPI. Hệ thống chỉ lưu thông tin nhân sự; công thức sẽ được bổ sung sau.' }
-};
+/* Công thức lương, thưởng, KPI: lưu trong bảng formulas (tạo từ mẫu ở worker/formulas.js).
+   Mỗi phòng ban chọn một công thức; mỗi chức danh có tham số riêng (khung lương, %CB, hệ số KPI, thưởng QL, phụ cấp).
+   7 chức danh kinh doanh gốc thuộc công thức gốc "sales"; phòng dùng công thức này có sẵn 7 chức danh đó. */
 const DEFAULT_DEPT = { id: 'kinh-doanh', name: 'Phòng Kinh doanh', formula: 'sales' };
 const slugId = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 // Danh sách phòng ban + chức danh tự tạo; titles = bảng chức danh đầy đủ (chức danh công thức + chức danh tự tạo)
 // Chức danh của công thức (vd khối KD) giữ nguyên mã & tham số tính lương; Admin chỉ đổi tên hiển thị (lưu ở title_names).
-let ORG_TITLES = null;                         // bản mới nhất, dùng cho chức danh trên proposal / email
+let ORG_TITLES = null;                         // bản mới nhất: tên & tham số chức danh (proposal, KPI)
+const parseJ = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
 async function loadOrg(env) {
-  const [d, t, c, tn, tu] = await env.DB.batch([
+  const [d, t, c, tn, tu, fm] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM departments ORDER BY sort, name'),
     env.DB.prepare('SELECT * FROM dept_titles ORDER BY sort, name'),
     env.DB.prepare('SELECT dept_id, COUNT(*) AS n FROM users WHERE active=1 GROUP BY dept_id'),
     env.DB.prepare('SELECT * FROM title_names'),
-    env.DB.prepare('SELECT title, COUNT(*) AS n FROM users GROUP BY title')
+    env.DB.prepare('SELECT title, COUNT(*) AS n FROM users GROUP BY title'),
+    env.DB.prepare('SELECT * FROM formulas ORDER BY builtin DESC, created_at')
   ]);
   const counts = Object.fromEntries(c.results.map((x) => [x.dept_id, x.n]));
   const used = Object.fromEntries(tu.results.map((x) => [x.title, x.n]));
   const departments = d.results.map((x) => ({ ...x, active: !!x.active, users: counts[x.id] || 0 }));
+  const deptById = Object.fromEntries(departments.map((x) => [x.id, x]));
+  const formulas = { none: { ...NONE_FORMULA, depts: 0 } };
+  for (const x of fm.results) formulas[x.id] = { id: x.id, name: x.name, template: x.template, description: x.description || '', builtin: !!x.builtin,
+    config: parseJ(x.config, {}), updated_at: x.updated_at, depts: 0 };
+  for (const x of departments) if (formulas[x.formula]) formulas[x.formula].depts++;
   const ren = Object.fromEntries(tn.results.map((x) => [x.id, x]));
   const titles = {};
   for (const [k, v] of Object.entries(TITLES)) {
-    const r = ren[k] || {};
-    titles[k] = { ...v, name: r.name || v.name, en: r.en || v.en || '', default_name: v.name, default_en: v.en || '',
-      formula: SALES_TITLES.includes(k) ? 'sales' : null, used: used[k] || 0 };
+    const r = ren[k] || {}, builtin = SALES_TITLES.includes(k);
+    const params = builtin ? { ...BUILTIN_PARAMS[k], ...parseJ(r.params, {}), type: BUILTIN_PARAMS[k].type } : null;
+    titles[k] = { name: r.name || v.name, en: r.en || v.en || '', default_name: v.name, default_en: v.en || '', builtin: true,
+      formula: builtin ? BUILTIN_FORMULA : null, template: builtin ? 'sales_3p' : null, params, default_params: builtin ? BUILTIN_PARAMS[k] : null,
+      mgr: !!(params && params.type === 'mgr'), active: true, used: used[k] || 0 };
   }
-  for (const x of t.results) titles[x.id] = { name: x.name, en: x.en || '', mgr: !!x.mgr, dept_id: x.dept_id, sort: x.sort, custom: true, active: !!x.active, used: used[x.id] || 0 };
+  for (const x of t.results) {
+    const dp = deptById[x.dept_id], f = dp && formulas[dp.formula], params = f && f.template ? parseJ(x.params, null) : null;
+    titles[x.id] = { name: x.name, en: x.en || '', mgr: params ? params.type === 'mgr' : !!x.mgr, dept_id: x.dept_id, sort: x.sort, custom: true,
+      active: !!x.active, used: used[x.id] || 0, formula: f ? f.id : 'none', template: f ? f.template : null, params };
+  }
   ORG_TITLES = titles;
-  return { departments, titles, deptById: Object.fromEntries(departments.map((x) => [x.id, x])) };
+  return { departments, titles, formulas, deptById };
 }
-// Chức danh hợp lệ của một phòng ban
+// Chức danh hợp lệ của một phòng ban: phòng dùng công thức gốc có sẵn 7 chức danh KD + chức danh tự tạo của phòng
 function deptTitleKeys(org, dept) {
   if (!dept) return ['other'];
-  const f = FORMULAS[dept.formula] || FORMULAS.none;
-  if (f.titles) return f.titles;
-  return Object.entries(org.titles).filter(([, v]) => v.custom && v.dept_id === dept.id).map(([k]) => k);
+  const own = Object.entries(org.titles).filter(([, v]) => v.custom && v.dept_id === dept.id).map(([k]) => k);
+  return dept.formula === BUILTIN_FORMULA ? [...SALES_TITLES, ...own] : own;
 }
-const formulasPublic = () => Object.fromEntries(Object.entries(FORMULAS).map(([k, v]) => [k, { name: v.name, desc: v.desc, kpi: v.kpi, titles: v.titles }]));
+const orgPublic = (org) => ({ departments: org.departments, titles: org.titles, formulas: org.formulas, templates: templatesPublic() });
+// Tham số tính lương của chức danh (từ bản org mới nhất)
+const titleParams = (key) => (ORG_TITLES && ORG_TITLES[key] && ORG_TITLES[key].params) || null;
+const hasRevenueKpi = (key) => !!(ORG_TITLES && ORG_TITLES[key] && ORG_TITLES[key].template === 'sales_3p');
 
 // Tài khoản quản trị đầu tiên (chỉ tạo khi bảng users còn trống). Bắt buộc đổi mật khẩu lần đầu.
 const SEED_ADMIN = { email: 'sondo@redsun.vn', name: 'Sơn Đỗ', title: 'other',
@@ -234,6 +242,16 @@ async function ensureSchema(env) {
       active INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL)`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS title_names (id TEXT PRIMARY KEY, name TEXT, en TEXT)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS formulas (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      template TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      config TEXT NOT NULL DEFAULT '{}',
+      builtin INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      updated_by INTEGER)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_users_manager ON users(manager_id)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_kpis_period ON kpis(year, month)`)
   ]);
@@ -244,9 +262,13 @@ async function ensureSchema(env) {
   }
   // Nâng cấp cấu trúc cho dữ liệu đã có (bỏ qua nếu cột đã tồn tại)
   for (const sql of ['ALTER TABLE users ADD COLUMN cb_ratio REAL', 'ALTER TABLE kpis ADD COLUMN cb REAL', 'ALTER TABLE sessions ADD COLUMN last_seen INTEGER',
-    'ALTER TABLE users ADD COLUMN phone TEXT', 'ALTER TABLE users ADD COLUMN contact_email TEXT', 'ALTER TABLE users ADD COLUMN dept_id TEXT', 'ALTER TABLE dept_titles ADD COLUMN en TEXT']) {
+    'ALTER TABLE users ADD COLUMN phone TEXT', 'ALTER TABLE users ADD COLUMN contact_email TEXT', 'ALTER TABLE users ADD COLUMN dept_id TEXT', 'ALTER TABLE dept_titles ADD COLUMN en TEXT',
+    'ALTER TABLE dept_titles ADD COLUMN params TEXT', 'ALTER TABLE title_names ADD COLUMN params TEXT']) {
     try { await env.DB.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(String(e.message))) throw e; }
   }
+  // Công thức gốc của khối Kinh doanh (Quy chế hiện hành)
+  await env.DB.prepare(`INSERT OR IGNORE INTO formulas (id,name,template,description,config,builtin,created_at,updated_at) VALUES (?1,?2,'sales_3p',?3,?4,1,?5,?5)`)
+    .bind(BUILTIN_FORMULA, 'Lương 3P – Khối Kinh doanh', 'Quy chế lương thưởng khối Kinh doanh hiện hành.', JSON.stringify(TEMPLATES.sales_3p.config), now()).run();
   // Lần đầu có phòng ban: tạo Phòng Kinh doanh, chuyển nhân viên đang có chức danh kinh doanh vào phòng này
   const dc = await env.DB.prepare('SELECT COUNT(*) AS n FROM departments').first();
   if (!dc.n) {
@@ -307,9 +329,10 @@ function publicUser(u) {
 }
 
 /* ---------------------------- KPI ---------------------------- */
+// Tham số lấy từ chức danh (bảng công thức); cần gọi loadOrg trước (đã gọi ở đầu nhóm API /api/kpis)
 function cbOf(u) {
-  const t = TITLES[u.title] || TITLES.other;
-  return u.cb_ratio == null ? t.cb : u.cb_ratio;
+  const t = titleParams(u.title) || {};
+  return u.cb_ratio == null ? (t.cb || 0) : u.cb_ratio;
 }
 function defaultKcn(u, x) {
   return Math.round((u.salary_w || 0) * (1 - cbOf(u)) * x);
@@ -318,8 +341,8 @@ function defaultKcn(u, x) {
 async function unitTarget(env, u, y, m) {
   const k = await env.DB.prepare('SELECT kcn, kteam FROM kpis WHERE user_id=?1 AND year=?2 AND month=?3').bind(u.id, y, m).first();
   if (k) return k.kcn + (k.kteam || 0);
-  const t = TITLES[u.title] || TITLES.other;
-  return defaultKcn(u, t.X);
+  if (!hasRevenueKpi(u.title)) return 0;
+  return defaultKcn(u, (titleParams(u.title) || {}).X || 0);
 }
 async function suggestTeamTarget(env, managerId, y, m, factor = 1) {
   const kids = await env.DB.prepare('SELECT * FROM users WHERE manager_id=?1 AND active=1').bind(managerId).all();
@@ -701,21 +724,54 @@ async function api(req, env, url, me, ctx) {
     const mgr = me.manager_id ? await env.DB.prepare('SELECT id,name,email FROM users WHERE id=?1').bind(me.manager_id).first() : null;
     const cfg = await getSettings(env);
     const org = await loadOrg(env);
-    return json({ user: publicUser(me), manager: mgr, titles: org.titles, departments: org.departments, formulas: formulasPublic(),
+    return json({ user: publicUser(me), manager: mgr, ...orgPublic(org),
       company: cfg.company_name, idle_minutes: intSetting(cfg.idle_minutes, 0, 0, 1440) });
   }
 
-  /* ----- Phòng ban & chức danh ----- */
-  if (p === '/api/org' && method === 'GET') {
-    const org = await loadOrg(env);
-    return json({ departments: org.departments, titles: org.titles, formulas: formulasPublic() });
-  }
+  /* ----- Phòng ban, chức danh, công thức lương thưởng KPI ----- */
+  if (p === '/api/org' && method === 'GET') return json(orgPublic(await loadOrg(env)));
   if (p.startsWith('/api/org/') && me.must_change) return bad('Bạn cần đổi mật khẩu trước khi tiếp tục.', 403);
   if (p.startsWith('/api/org/') && me.app_role !== 'admin') return bad('Chỉ Admin được quản lý phòng ban và chức danh.', 403);
+  /* Công thức: tạo từ mẫu (hoặc nhân bản), sửa tham số chung, xóa khi không phòng nào dùng */
+  if (p === '/api/org/formulas' && method === 'POST') {
+    const org = await loadOrg(env), src = body.from ? org.formulas[body.from] : null;
+    if (body.from && (!src || !src.template)) return bad('Không tìm thấy công thức để nhân bản.');
+    const template = src ? src.template : body.template;
+    if (!TEMPLATES[template]) return bad('Hãy chọn mẫu công thức.');
+    const name = String(body.name || '').trim().slice(0, 100);
+    if (!name) return bad('Chưa nhập tên công thức.');
+    if (Object.values(org.formulas).some((f) => f.name.toLowerCase() === name.toLowerCase())) return bad('Đã có công thức tên này.');
+    const id = 'f-' + hex(crypto.getRandomValues(new Uint8Array(5)));
+    const config = cleanConfig(template, src ? src.config : TEMPLATES[template].config);
+    await env.DB.prepare('INSERT INTO formulas (id,name,template,description,config,builtin,created_at,updated_at,updated_by) VALUES (?1,?2,?3,?4,?5,0,?6,?6,?7)')
+      .bind(id, name, template, String(body.description ?? (src ? src.description : '')).trim().slice(0, 1000), JSON.stringify(config), now(), me.id).run();
+    return json({ ok: true, id });
+  }
+  let om = p.match(/^\/api\/org\/formulas\/([a-z0-9-]+)$/);
+  if (om && (method === 'PUT' || method === 'DELETE')) {
+    const org = await loadOrg(env), f = org.formulas[om[1]];
+    if (!f || !f.template) return bad('Không tìm thấy công thức.', 404);
+    if (method === 'DELETE') {
+      if (f.builtin) return bad('Không xóa được công thức gốc của khối Kinh doanh.');
+      if (f.depts) return bad(`Công thức đang được ${f.depts} phòng ban sử dụng. Hãy đổi công thức cho các phòng đó trước.`);
+      await env.DB.prepare('DELETE FROM formulas WHERE id=?1').bind(f.id).run();
+      return json({ ok: true });
+    }
+    const name = body.name === undefined ? f.name : String(body.name || '').trim().slice(0, 100);
+    if (!name) return bad('Chưa nhập tên công thức.');
+    if (Object.values(org.formulas).some((x) => x.id !== f.id && x.name.toLowerCase() === name.toLowerCase())) return bad('Đã có công thức tên này.');
+    let config;
+    try { config = body.config === undefined ? f.config : cleanConfig(f.template, body.config); } catch (e) { return bad(e.message); }
+    await env.DB.prepare('UPDATE formulas SET name=?1, description=?2, config=?3, updated_at=?4, updated_by=?5 WHERE id=?6')
+      .bind(name, body.description === undefined ? f.description : String(body.description || '').trim().slice(0, 1000), JSON.stringify(config), now(), me.id, f.id).run();
+    return json({ ok: true });
+  }
+
   if (p === '/api/org/departments' && method === 'POST') {
-    const name = String(body.name || '').trim().slice(0, 80), formula = FORMULAS[body.formula] ? body.formula : 'none';
+    const name = String(body.name || '').trim().slice(0, 80);
     if (!name) return bad('Chưa nhập tên phòng ban.');
     const org = await loadOrg(env);
+    const formula = org.formulas[body.formula] ? body.formula : 'none';
     if (org.departments.some((x) => x.name.toLowerCase() === name.toLowerCase())) return bad('Đã có phòng ban tên này.');
     let id = slugId(name) || 'phong'; const base = id; let i = 2;
     while (org.deptById[id]) id = `${base}-${i++}`;
@@ -723,7 +779,7 @@ async function api(req, env, url, me, ctx) {
       .bind(id, name, formula, String(body.description || '').trim().slice(0, 500), org.departments.length, now()).run();
     return json({ ok: true, id });
   }
-  let om = p.match(/^\/api\/org\/departments\/([a-z0-9-]+)$/);
+  om = p.match(/^\/api\/org\/departments\/([a-z0-9-]+)$/);
   if (om && (method === 'PUT' || method === 'DELETE')) {
     const org = await loadOrg(env), d = org.deptById[om[1]];
     if (!d) return bad('Không tìm thấy phòng ban.', 404);
@@ -734,39 +790,61 @@ async function api(req, env, url, me, ctx) {
       return json({ ok: true });
     }
     const name = body.name === undefined ? d.name : String(body.name || '').trim().slice(0, 80);
-    const formula = body.formula === undefined ? d.formula : (FORMULAS[body.formula] ? body.formula : null);
+    const formula = body.formula === undefined ? d.formula : (org.formulas[body.formula] ? body.formula : null);
     if (!name) return bad('Chưa nhập tên phòng ban.');
     if (!formula) return bad('Công thức không hợp lệ.');
     if (org.departments.some((x) => x.id !== d.id && x.name.toLowerCase() === name.toLowerCase())) return bad('Đã có phòng ban tên này.');
-    if (formula !== d.formula && all.n) return bad(`Phòng ban đang có ${all.n} nhân viên nên chưa đổi được công thức (chức danh của họ gắn với công thức cũ). Hãy chuyển nhân viên sang phòng khác hoặc tạo phòng mới.`);
+    const stmts = [];
+    if (formula !== d.formula) {
+      const oldT = org.formulas[d.formula].template, newT = org.formulas[formula].template;
+      if (all.n && oldT && oldT !== newT) return bad(`Phòng ban đang có ${all.n} nhân viên nên chỉ đổi được sang công thức cùng mẫu (${oldT ? TEMPLATES[oldT].short : 'chưa có công thức'}). Hãy chuyển nhân viên sang phòng khác hoặc tạo phòng mới.`);
+      if (d.formula === BUILTIN_FORMULA) {
+        const b = await env.DB.prepare(`SELECT COUNT(*) AS n FROM users WHERE dept_id=?1 AND title IN (${SALES_TITLES.map((x) => `'${x}'`).join(',')})`).bind(d.id).first();
+        if (b.n) return bad(`Có ${b.n} nhân viên giữ chức danh kinh doanh gốc (chỉ có ở công thức gốc). Hãy đổi chức danh của họ trước.`);
+      }
+      // Đổi sang mẫu khác: tham số chức danh tự tạo của phòng đặt lại theo mẫu mới (giữ loại nhân viên/quản lý)
+      if (oldT !== newT) for (const [k, t] of Object.entries(org.titles)) if (t.custom && t.dept_id === d.id) {
+        const type = t.params && TEMPLATES[newT] && TEMPLATES[newT].types[t.params.type] ? t.params.type : (t.mgr ? 'mgr' : 'staff');
+        stmts.push(env.DB.prepare('UPDATE dept_titles SET params=?1 WHERE id=?2').bind(newT ? JSON.stringify(defaultParams(newT, type)) : null, k));
+      }
+    }
     const active = body.active === undefined ? (d.active ? 1 : 0) : (body.active ? 1 : 0);
     const sort = body.sort === undefined ? d.sort : Math.max(0, Math.min(999, Math.round(+body.sort || 0)));
-    await env.DB.prepare('UPDATE departments SET name=?1, formula=?2, description=?3, active=?4, sort=?5 WHERE id=?6')
-      .bind(name, formula, body.description === undefined ? d.description : String(body.description || '').trim().slice(0, 500), active, sort, d.id).run();
+    stmts.push(env.DB.prepare('UPDATE departments SET name=?1, formula=?2, description=?3, active=?4, sort=?5 WHERE id=?6')
+      .bind(name, formula, body.description === undefined ? d.description : String(body.description || '').trim().slice(0, 500), active, sort, d.id));
+    await env.DB.batch(stmts);
     return json({ ok: true });
   }
   om = p.match(/^\/api\/org\/departments\/([a-z0-9-]+)\/titles$/);
   if (om && method === 'POST') {
     const org = await loadOrg(env), d = org.deptById[om[1]];
     if (!d) return bad('Không tìm thấy phòng ban.', 404);
-    if ((FORMULAS[d.formula] || {}).titles) return bad('Chức danh của phòng này lấy theo công thức, không thêm tay được.');
     const name = String(body.name || '').trim().slice(0, 80);
     if (!name) return bad('Chưa nhập tên chức danh.');
     if (deptTitleKeys(org, d).some((k) => org.titles[k].name.toLowerCase() === name.toLowerCase())) return bad('Phòng ban đã có chức danh này.');
+    // Tham số tính lương theo mẫu công thức của phòng (để trống = mặc định của mẫu theo loại nhân viên/quản lý)
+    const tpl = org.formulas[d.formula].template;
+    let params = null;
+    try { if (tpl) params = cleanParams(tpl, body.params || defaultParams(tpl, body.mgr ? 'mgr' : 'staff')); } catch (e) { return bad(e.message); }
+    const mgr = params ? params.type === 'mgr' : !!body.mgr;
     const id = 't-' + hex(crypto.getRandomValues(new Uint8Array(5)));
-    await env.DB.prepare('INSERT INTO dept_titles (id,dept_id,name,mgr,sort,active,created_at) VALUES (?1,?2,?3,?4,?5,1,?6)')
-      .bind(id, d.id, name, body.mgr ? 1 : 0, deptTitleKeys(org, d).length, now()).run();
+    await env.DB.prepare('INSERT INTO dept_titles (id,dept_id,name,mgr,sort,active,created_at,en,params) VALUES (?1,?2,?3,?4,?5,1,?6,?7,?8)')
+      .bind(id, d.id, name, mgr ? 1 : 0, deptTitleKeys(org, d).length, now(), String(body.en || '').trim().slice(0, 80) || null, params ? JSON.stringify(params) : null).run();
     return json({ ok: true, id });
   }
   om = p.match(/^\/api\/org\/titles\/([a-z]+)$/);
-  if (om && TITLES[om[1]] && method === 'PUT') {          // chức danh theo công thức: chỉ đổi tên hiển thị (VN/EN)
+  if (om && SALES_TITLES.includes(om[1]) && method === 'PUT') {   // 7 chức danh KD gốc: đổi tên VN/EN và tham số (giữ loại)
     const k = om[1], name = String(body.name ?? '').trim().slice(0, 80), en = String(body.en ?? '').trim().slice(0, 80);
     if (!name) return bad('Chưa nhập tên chức danh.');
     const org = await loadOrg(env);
     if (Object.entries(org.titles).some(([x, v]) => x !== k && !v.custom && v.name.toLowerCase() === name.toLowerCase())) return bad('Đã có chức danh khác trùng tên này.');
-    const def = TITLES[k];
-    if (name === def.name && en === (def.en || '')) await env.DB.prepare('DELETE FROM title_names WHERE id=?1').bind(k).run();
-    else await env.DB.prepare('INSERT INTO title_names (id,name,en) VALUES (?1,?2,?3) ON CONFLICT(id) DO UPDATE SET name=excluded.name, en=excluded.en').bind(k, name, en || null).run();
+    let params = org.titles[k].params;
+    try { if (body.params) params = cleanParams('sales_3p', { ...body.params, type: BUILTIN_PARAMS[k].type }); } catch (e) { return bad(e.message); }
+    if (BUILTIN_PARAMS[k].team) params.team = BUILTIN_PARAMS[k].team;
+    const def = TITLES[k], sameP = JSON.stringify(params) === JSON.stringify(cleanParams('sales_3p', BUILTIN_PARAMS[k])) || JSON.stringify(params) === JSON.stringify(BUILTIN_PARAMS[k]);
+    if (name === def.name && en === (def.en || '') && sameP) await env.DB.prepare('DELETE FROM title_names WHERE id=?1').bind(k).run();
+    else await env.DB.prepare('INSERT INTO title_names (id,name,en,params) VALUES (?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET name=excluded.name, en=excluded.en, params=excluded.params')
+      .bind(k, name, en || null, sameP ? null : JSON.stringify(params)).run();
     return json({ ok: true });
   }
   om = p.match(/^\/api\/org\/titles\/(t-[a-f0-9]+)$/);
@@ -784,21 +862,32 @@ async function api(req, env, url, me, ctx) {
     const dup = await env.DB.prepare('SELECT id FROM dept_titles WHERE dept_id=?1 AND lower(name)=lower(?2) AND id<>?3').bind(t.dept_id, name, t.id).first();
     if (dup) return bad('Phòng ban đã có chức danh này.');
     // Đổi sang phòng khác (cùng loại "tự tạo chức danh") chỉ khi chưa có nhân viên giữ chức danh này
+    const org = await loadOrg(env);
     let dept_id = t.dept_id;
     if (body.dept_id !== undefined && body.dept_id !== t.dept_id) {
-      const org = await loadOrg(env), nd = org.deptById[body.dept_id];
+      const nd = org.deptById[body.dept_id];
       if (!nd) return bad('Phòng ban không tồn tại.');
-      if ((FORMULAS[nd.formula] || {}).titles) return bad('Phòng này dùng chức danh theo công thức, không chuyển chức danh vào được.');
       if (used.n) return bad(`Chức danh đang gán cho ${used.n} nhân viên nên chưa chuyển phòng được.`);
       dept_id = nd.id;
     }
     const dup2 = await env.DB.prepare('SELECT id FROM dept_titles WHERE dept_id=?1 AND lower(name)=lower(?2) AND id<>?3').bind(dept_id, name, t.id).first();
     if (dup2) return bad('Phòng ban đã có chức danh này.');
-    await env.DB.prepare('UPDATE dept_titles SET name=?1, mgr=?2, en=?3, sort=?4, active=?5, dept_id=?6 WHERE id=?7').bind(name,
-      body.mgr === undefined ? t.mgr : (body.mgr ? 1 : 0),
+    // Tham số theo mẫu công thức của phòng (đổi phòng khác mẫu: lấy mặc định của mẫu mới nếu không gửi kèm)
+    const tpl = org.formulas[org.deptById[dept_id].formula].template;
+    let params = null;
+    try {
+      if (tpl) {
+        const cur = parseJ(t.params, null), sameTpl = dept_id === t.dept_id || org.formulas[org.deptById[t.dept_id].formula].template === tpl;
+        params = cleanParams(tpl, body.params || (sameTpl && cur) || defaultParams(tpl, (body.mgr ?? t.mgr) ? 'mgr' : 'staff'));
+      }
+    } catch (e) { return bad(e.message); }
+    if (params && used.n && t.params && parseJ(t.params, {}).type !== params.type && (parseJ(t.params, {}).type === 'ctv' || params.type === 'ctv'))
+      return bad('Chức danh đang có nhân viên nên không đổi được giữa loại Cộng tác viên và nhân viên/quản lý.');
+    await env.DB.prepare('UPDATE dept_titles SET name=?1, mgr=?2, en=?3, sort=?4, active=?5, dept_id=?6, params=?8 WHERE id=?7').bind(name,
+      params ? (params.type === 'mgr' ? 1 : 0) : body.mgr === undefined ? t.mgr : (body.mgr ? 1 : 0),
       body.en === undefined ? t.en : (String(body.en || '').trim().slice(0, 80) || null),
       body.sort === undefined ? t.sort : Math.max(0, Math.min(999, Math.round(+body.sort || 0))),
-      body.active === undefined ? t.active : (body.active ? 1 : 0), dept_id, t.id).run();
+      body.active === undefined ? t.active : (body.active ? 1 : 0), dept_id, t.id, params ? JSON.stringify(params) : null).run();
     return json({ ok: true });
   }
   if (p === '/api/me/password' && method === 'POST') {
@@ -899,6 +988,7 @@ async function api(req, env, url, me, ctx) {
   }
 
   /* ----- KPI ----- */
+  if (p.startsWith('/api/kpis')) await loadOrg(env);          // tham số chức danh mới nhất (%CB, hệ số X, quản lý)
   if (p === '/api/kpis' && method === 'GET') {
     const y = +url.searchParams.get('year') || new Date().getFullYear();
     const uid = url.searchParams.get('user_id');
@@ -950,19 +1040,19 @@ async function api(req, env, url, me, ctx) {
       if (me.app_role !== 'admin' && (id === me.id || !scope.has(id))) return bad('Chỉ được giao KPI cho nhân viên thuộc quyền quản lý của bạn.', 403);
       const u = await env.DB.prepare('SELECT * FROM users WHERE id=?1 AND active=1').bind(id).first();
       if (!u) return bad(`Không tìm thấy nhân viên #${id}.`);
-      if (!SALES_TITLES.includes(u.title)) return bad(`${u.name} thuộc phòng ban chưa có công thức KPI, chưa giao KPI được.`);
+      if (!hasRevenueKpi(u.title)) return bad(`${u.name} thuộc công thức không giao KPI doanh số (chỉ công thức "Lương 3P theo doanh số" giao KPI ở đây).`);
       users.push(u);
     }
     const depth = async (u) => { let d = 0, cur = u; const seen = new Set(); while (cur && cur.manager_id && !seen.has(cur.id)) { seen.add(cur.id); d++; cur = await env.DB.prepare('SELECT id,manager_id FROM users WHERE id=?1').bind(cur.manager_id).first(); } return d; };
     for (const u of users) u._depth = await depth(u);
     users.sort((a, b) => b._depth - a._depth);
     for (const u of users) {
-      const t = TITLES[u.title] || TITLES.other;
-      const x = xOv ?? t.X;
+      const t = titleParams(u.title) || {};
+      const x = xOv ?? (t.X || 0);
       for (const mo of months) {
         const kcn = kcnOv ?? defaultKcn(u, x);
         let kteam = null;
-        if (t.mgr) kteam = kteamOv ?? await suggestTeamTarget(env, u.id, year, mo, factor);
+        if (t.type === 'mgr') kteam = kteamOv ?? await suggestTeamTarget(env, u.id, year, mo, factor);
         const st = env.DB.prepare(`INSERT INTO kpis (user_id,year,month,w,x,kcn,kteam,note,assigned_by,assigned_at,cb)
             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
             ON CONFLICT(user_id,year,month) DO UPDATE SET w=excluded.w, x=excluded.x, kcn=excluded.kcn, kteam=excluded.kteam, cb=excluded.cb,

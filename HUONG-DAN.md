@@ -5,21 +5,31 @@
 2. Hệ thống yêu cầu **đặt mật khẩu riêng** (tối thiểu 8 ký tự) trước khi dùng.
 3. Quên mật khẩu: liên hệ Admin để được **cấp lại mật khẩu tạm**.
 
-## 2. Admin: phòng ban & chức danh
-Tab **Nhân viên** → **🏢 Phòng ban & chức danh**. Mỗi phòng ban chọn một **công thức tính lương, thưởng, KPI**:
-- **Lương 3P – Khối Kinh doanh**: chức danh cố định (CCO, SM, Team Lead, Senior, Sales Exec, Fresher, CTV), có giao KPI và bảng tính thu nhập. Phòng Kinh doanh được tạo sẵn; nhân viên kinh doanh cũ đã được chuyển vào.
-- **Chưa có công thức**: Admin tự thêm chức danh cho phòng (tick **Là quản lý** nếu là chức danh quản lý). Nhân viên phòng này chỉ lưu thông tin; chưa giao KPI, chưa có bảng tính cho đến khi bổ sung công thức.
+## 2. Admin: công thức lương thưởng KPI, phòng ban & chức danh
+Tab **Nhân viên** → **🧮 Công thức lương** (hoặc **🏢 Phòng ban & chức danh**). Hộp thoại có 2 tab.
 
-**Sửa chức danh:** bấm **✎ Sửa** cạnh chức danh.
-- Chức danh theo công thức (khối KD): đổi được **tên tiếng Việt** và **tên tiếng Anh** (dùng trên proposal EN); hệ số, khung lương giữ nguyên. Có nút **Khôi phục tên gốc**. Tên mới hiện ở mọi nơi: danh sách nhân viên, Quy chế, Bảng tính, KPI, proposal.
-- Chức danh tự tạo: đổi tên VN/EN, cờ **Là quản lý**, thứ tự hiển thị, **Ngừng sử dụng** (ẩn khỏi danh sách chọn, người đang giữ vẫn giữ), chuyển sang phòng khác (khi chưa có ai giữ chức danh).
+**Công thức** – tạo từ 3 mẫu, sửa được mọi tham số chung:
+- **Lương 3P theo doanh số** (khối Kinh doanh): bậc thưởng doanh số cá nhân C₁, bậc hoa hồng CTV, target đội minh họa. Công thức gốc *Lương 3P – Khối Kinh doanh* là Quy chế hiện hành (sửa được, không xóa được); sửa ở đây thì Quy chế, Bảng tính, KPI cập nhật theo.
+- **Lương 3P theo điểm KPI** (văn phòng, kỹ thuật, CSKH…): danh sách tiêu chí KPI + trọng số (tổng 100%), trần % mỗi tiêu chí, điểm sàn, trần lương hiệu suất, bậc thưởng hiệu suất theo điểm (% × W). Có ô **Thử tính**.
+- **Lương cố định + phụ cấp**: không có tham số chung.
 
-Chỉ xóa được phòng ban/chức danh khi không còn nhân viên nào gán vào. Chỉ đổi được công thức của phòng khi phòng chưa có nhân viên. Phòng **Ngừng sử dụng** sẽ ẩn khỏi danh sách chọn khi thêm nhân viên.
+Có thể **Nhân bản** một công thức để làm biến thể cho phòng khác. Chỉ xóa được công thức không còn phòng nào dùng.
 
-> Bổ sung công thức cho phòng ban khác (vd Kế toán, Kỹ thuật): khai báo trong `FORMULAS` của worker (tên, mô tả, có KPI hay không, danh sách chức danh nếu cố định) và phần tính toán tương ứng ở giao diện.
+**Phòng ban** – mỗi phòng chọn một công thức. Phòng đang có nhân viên chỉ đổi được sang công thức cùng mẫu (riêng phòng *Chưa có công thức* thì gán được mọi công thức). Phòng dùng công thức gốc có sẵn 7 chức danh kinh doanh.
+
+**Chức danh** – bấm **＋ Thêm chức danh** trong phòng: tham số được **điền sẵn theo mẫu** công thức của phòng, sửa lại tùy ý:
+- Theo doanh số: loại (Nhân viên KD / Quản lý KD / CTV), khung lương W, % lương cơ bản, hệ số KPI X, hệ số tăng dần cho người mới; quản lý thêm trọng số cá nhân, ngưỡng và mức thưởng quản lý C₂ (khi đạt 100% và 120%).
+- Theo điểm KPI: loại (Nhân viên / Quản lý), khung lương W, % lương cơ bản, phụ cấp cố định.
+- Cố định: khung lương W, phụ cấp.
+
+**✎ Sửa** chức danh để đổi tên VN/EN, tham số, thứ tự, ngừng sử dụng, chuyển phòng (khi chưa có ai giữ). 7 chức danh gốc có nút **Khôi phục tên & tham số gốc**.
+
+Nhân viên phòng *theo điểm KPI* xem tiêu chí và tự ước tính thu nhập ở tab **KPI của bạn**. Giao KPI doanh số (tab Giao KPI) áp dụng cho chức danh theo doanh số.
+
+Chỉ xóa được phòng ban/chức danh khi không còn nhân viên nào gán vào. Phòng **Ngừng sử dụng** sẽ ẩn khỏi danh sách chọn khi thêm nhân viên.
 
 ## 2b. Admin: tạo tài khoản nhân viên
-**Cách 1 – Từng người:** tab **Nhân viên** → **＋ Thêm nhân viên** → nhập email, họ tên, chọn **Phòng ban** → chọn **Chức danh** của phòng (form hiện cách tính lương, thưởng, KPI theo công thức của phòng), quyền, quản lý trực tiếp, **tổng lương W** và **tỷ lệ lương cơ bản (%)** (để trống = theo chức danh: quản lý 40%, nhân viên 50%) → form hiện ngay lương cơ bản S, lương hiệu suất H và target mặc định → **Tạo tài khoản** → bấm **Sao chép nội dung** và gửi riêng cho nhân viên.
+**Cách 1 – Từng người:** tab **Nhân viên** → **＋ Thêm nhân viên** → nhập email, họ tên, chọn **Phòng ban** → chọn **Chức danh** của phòng (form hiện cách tính lương, thưởng, KPI theo công thức của phòng), quyền, quản lý trực tiếp, **tổng lương W** và **tỷ lệ lương cơ bản (%)** (để trống = theo tham số của chức danh) → form hiện ngay lương cơ bản S, lương hiệu suất H và target mặc định → **Tạo tài khoản** → bấm **Sao chép nội dung** và gửi riêng cho nhân viên.
 
 **Cách 2 – Nhiều người từ file:** tab **Nhân viên** → **⇪ Nhập từ file CSV**. Các cột: `tai_khoan` (hoặc `email`), `ho_ten`, `phong_ban` (tên phòng; trống thì chức danh kinh doanh vào Phòng Kinh doanh), `chuc_danh` (phòng tự tạo chức danh: ghi đúng tên chức danh), `mat_khau` (có thì giữ nguyên, trống thì tạo mật khẩu tạm), `luong_w`, `ty_le_cb` (% lương cơ bản, vd 40), `quan_ly` (email quản lý trực tiếp). Dùng được luôn file `danh-sach-tai-khoan.csv` của công cụ cũ.
 

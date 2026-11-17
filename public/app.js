@@ -16,23 +16,41 @@
   const deptOf = (id) => S.depts.find((d) => d.id === id) || null;
   const deptName = (id) => (deptOf(id) || {}).name || 'Chưa phân phòng';
   const formulaOfDept = (d) => d ? (S.formulas[d.formula] || S.formulas.none || {}) : null;
+  const tplOf = (f) => (f && f.template && S.templates[f.template]) || null;
+  const fDesc = (f) => f ? [tplOf(f) ? tplOf(f).desc : f.description, tplOf(f) && f.description ? f.description : ''].filter(Boolean).join(' ') : '';
+  const pOf = (k) => (S.titles[k] && S.titles[k].params) || {};
   const hasKpi = (u) => !!ROLES[u.title];
   const deptTitleKeys = (d) => {
     if (!d) return ['other'];
-    const f = formulaOfDept(d);
-    if (f && f.titles) return f.titles;
-    return Object.keys(S.titles).filter((k) => S.titles[k].custom && S.titles[k].dept_id === d.id);
+    const own = Object.keys(S.titles).filter((k) => S.titles[k].custom && S.titles[k].dept_id === d.id);
+    return d.formula === 'sales' ? [...BUILTIN_KEYS, ...own] : own;
   };
+  /* Nạp phòng ban, chức danh, công thức. Chức danh theo mẫu "Lương 3P theo doanh số" được đưa vào ROLES của trang
+     để Bảng tính, Quy chế, KPI dùng chung một bộ máy tính (compute) với tham số từ công thức. */
+  const INF = (b) => (b || []).map(([t, r]) => [t == null ? Infinity : t, r]);
+  const c2Bands = (c) => [[c.t0, 0], [1.0, c.a / (1 - c.t0)], [1.2, (c.b * 1.2 - c.a) / 0.2], [Infinity, c.b]];
+  const BUILTIN_KEYS = ['cco', 'sm', 'tl', 'senior', 'sales', 'intern', 'ctv'];
+  const DOTS = { mgr: 'bg-amber-500', staff: 'bg-emerald-600', ctv: 'bg-gold-500' };
   const setOrg = (d) => {
-    S.titles = d.titles; S.depts = d.departments || []; S.formulas = d.formulas || {};
-    // Tên chức danh kinh doanh do Admin đổi → cập nhật cả Quy chế & Bảng tính (dùng ROLES của trang)
-    let changed = false;
-    for (const k of Object.keys(ROLES)) if (S.titles[k] && S.titles[k].name && ROLES[k].name !== S.titles[k].name) { ROLES[k].name = S.titles[k].name; changed = true; }
-    if (changed) {
-      try { if (typeof renderDoc === 'function') renderDoc(); } catch (e) { /* bỏ qua */ }
-      const rs = document.getElementById('role-select');
-      if (rs) [...rs.options].forEach((o) => { const r = ROLES[o.value]; if (r) o.textContent = `${r.name}${r.type === 'ctv' ? ' • Hoa hồng thuần' : ' • Khung ' + rng(r.min, r.max)}`; });
+    S.titles = d.titles; S.depts = d.departments || []; S.formulas = d.formulas || {}; S.templates = d.templates || {};
+    const base = S.formulas.sales && S.formulas.sales.config;
+    if (base) {                                   // bậc thưởng của công thức gốc → Quy chế & mặc định
+      C1_BANDS.splice(0, C1_BANDS.length, ...INF(base.c1)); CTV_BANDS.splice(0, CTV_BANDS.length, ...INF(base.ctv));
     }
+    for (const k of Object.keys(ROLES)) if (!BUILTIN_KEYS.includes(k) && !(S.titles[k] && S.titles[k].template === 'sales_3p')) { delete ROLES[k]; delete C2_BANDS[k]; }
+    for (const [k, t] of Object.entries(S.titles)) {
+      if (t.template !== 'sales_3p' || !t.params) continue;
+      const f = S.formulas[t.formula] || {}, cfg = f.config || {}, pr = t.params, builtin = BUILTIN_KEYS.includes(k);
+      const prev = ROLES[k] || {};
+      ROLES[k] = { ...prev, name: t.name, dot: prev.dot || (builtin && k === 'cco' || k === 'sm' ? 'bg-redsun-600' : DOTS[pr.type] || 'bg-slate-400'),
+        type: pr.type, min: pr.min, max: pr.max, cb: pr.cb, X: pr.X, wCn: pr.wCn, wQl: pr.wQl, ramp: pr.ramp, team: pr.team || prev.team || 'Đội',
+        c1: cfg.c1 ? INF(cfg.c1) : null, ctvb: cfg.ctv ? INF(cfg.ctv) : null, doc: builtin };
+      if (!pr.ramp) delete ROLES[k].ramp;
+      if (pr.type === 'mgr' && pr.c2) C2_BANDS[k] = c2Bands(pr.c2);
+    }
+    try { if (typeof renderDoc === 'function') renderDoc(); } catch (e) { /* bỏ qua */ }
+    const rs = document.getElementById('role-select');
+    if (rs) { const v = rs.value; rs.innerHTML = Object.entries(ROLES).map(([k, r]) => `<option value="${k}">${esc(r.name)}${r.type === 'ctv' ? ' • Hoa hồng thuần' : ' • Khung ' + rng(r.min, r.max)}</option>`).join(''); if (ROLES[v]) rs.value = v; }
   };
   const fmtDate = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('vi-VN') : '';
   const money = (n) => (n == null ? '—' : fmt(n));
@@ -52,9 +70,10 @@
   }
 
   /* ------------------------------ Hộp thoại ------------------------------ */
-  function openModal(html, locked) {
-    const m = document.getElementById('modal');
-    document.getElementById('modal-box').innerHTML = html;
+  function openModal(html, locked, wide) {
+    const m = document.getElementById('modal'), bx = document.getElementById('modal-box');
+    bx.classList.toggle('max-w-lg', !wide); bx.classList.toggle('max-w-3xl', !!wide);
+    bx.innerHTML = html;
     m.dataset.locked = locked ? '1' : '';
     m.classList.remove('hidden');
     const f = m.querySelector('input,select,textarea'); if (f) setTimeout(() => f.focus(), 30);
@@ -159,7 +178,7 @@
      BẢNG TÍNH THEO NGƯỜI: bản thân (khối KD) hoặc nhân viên dưới quyền (quản lý/admin)
      ========================================================================= */
   const C = { people: [], kpiCache: {}, ready: false };
-  const cbText = (u) => { const cb = u.cb_ratio != null ? u.cb_ratio : ((S.titles[u.title] || {}).cb || 0); return `${Math.round(cb * 1000) / 10}% CB – ${Math.round((1 - cb) * 1000) / 10}% HS`; };
+  const cbText = (u) => { const cb = u.cb_ratio != null ? u.cb_ratio : (pOf(u.title).cb || 0); return `${Math.round(cb * 1000) / 10}% CB – ${Math.round((1 - cb) * 1000) / 10}% HS`; };
   async function initCalc() {
     const box = document.getElementById('calc-person-box'), sel = document.getElementById('calc-person');
     const canMgr = ['admin', 'manager'].includes(S.me.app_role), admin = S.me.app_role === 'admin';
@@ -238,11 +257,26 @@
     const el = document.getElementById('tab-kpi');
     el.innerHTML = loading;
     if (!hasKpi(S.me)) {
-      const d = deptOf(S.me.dept_id), f = formulaOfDept(d);
+      const d = deptOf(S.me.dept_id), f = formulaOfDept(d), t = S.titles[S.me.title] || {}, pr = t.params;
+      const info = [['Họ tên', esc(S.me.name)], ['Phòng ban', esc(deptName(S.me.dept_id))], ['Chức danh', esc(titleName(S.me.title))], ['Tổng lương W', S.me.salary_w ? fmt(S.me.salary_w) : '—']];
+      let body = `<div class="mt-6 p-5 rounded-2xl bg-amber-50 border border-amber-200 text-sm text-amber-900"><b class="block mb-1">${esc(f ? f.name : 'Chưa phân phòng ban')}</b>${esc(f ? fDesc(f) : 'Tài khoản của bạn chưa được gán vào phòng ban nào nên chưa có công thức tính lương, thưởng, KPI.')}</div>`;
+      if (f && f.template === 'kpi_score' && pr) {
+        const cfg = f.config, par = { cb: S.me.cb_ratio ?? pr.cb, allowance: pr.allowance };
+        body = `<div class="mt-6 space-y-4">` + card(`<div class="p-5"><h3 class="font-bold text-slate-900">Ước tính thu nhập theo điểm KPI</h3>
+            <p class="text-xs text-slate-500 mb-3">${esc(f.name)} • Nhập % hoàn thành dự kiến của từng tiêu chí (tối đa ${P100(cfg.item_cap)}%). Điểm sàn ${P100(cfg.min_score)}%: dưới mức này không hưởng lương hiệu suất.</p>
+            <table class="w-full text-sm"><thead class="text-[11px] uppercase text-slate-500 bg-slate-50"><tr><th class="py-2 px-3 text-left">Tiêu chí</th><th class="py-2 px-3 text-right">Trọng số</th><th class="py-2 px-3 text-right w-36">% hoàn thành</th></tr></thead>
+            <tbody class="divide-y divide-slate-100">${cfg.criteria.map((c, i) => `<tr><td class="py-2 px-3"><b>${esc(c.name)}</b>${c.note ? `<br><span class="text-[11px] text-slate-500">${esc(c.note)}</span>` : ''}</td><td class="py-2 px-3 text-right">${P100(c.weight)}%</td>
+              <td class="py-2 px-3"><div class="relative"><input data-ach="${i}" type="number" step="5" min="0" value="100" class="${inputCls} pr-7 text-right"><span class="absolute right-2 top-2 text-xs text-slate-400">%</span></div></td></tr>`).join('')}</tbody></table>
+            <div id="ks-out" class="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200"></div>
+            ${cfg.bonus && cfg.bonus.length ? `<p class="text-[11px] text-slate-500 mt-2">Thưởng hiệu suất: ${cfg.bonus.map(([a, r]) => `từ ${P100(a)}% điểm → ${P100(r)}% W`).join(' • ')}.</p>` : ''}</div>`) + `</div>`;
+        el.innerHTML = pageHead('KPI của bạn', 'Tiêu chí KPI và cách tính thu nhập theo phòng ban của bạn.') + card(`<div class="p-5 grid grid-cols-2 sm:grid-cols-4 gap-3">${info.map(([l, v]) => `<div class="p-3 rounded-xl bg-slate-50 border border-slate-200"><span class="text-[11px] text-slate-400 block">${l}</span><b class="text-sm text-slate-900">${v}</b></div>`).join('')}</div>`) + body;
+        const upd = () => { document.getElementById('ks-out').innerHTML = S.me.salary_w ? scoreRows(calcScore(cfg, par, S.me.salary_w, [...el.querySelectorAll('[data-ach]')].map((x) => fromP(x.value) || 0))) : '<p class="text-sm text-slate-500">Chưa có tổng lương W trong hồ sơ: nhờ Admin cập nhật để ước tính thu nhập.</p>'; };
+        el.querySelectorAll('[data-ach]').forEach((x) => x.oninput = upd); upd();
+        return;
+      }
+      if (f && f.template === 'fixed' && pr) body = `<div class="mt-6 p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-900"><b class="block mb-1">${esc(f.name)}</b>${esc(fDesc(f))}<p class="mt-2">Thu nhập cố định/tháng: <b class="font-mono">${fmt((S.me.salary_w || 0) + (pr.allowance || 0))}</b> (W ${fmt(S.me.salary_w || 0)} + phụ cấp ${fmt(pr.allowance || 0)}).</p></div>`;
       el.innerHTML = pageHead('KPI của bạn', 'Chỉ tiêu và cách tính thu nhập theo phòng ban của bạn.')
-        + card(`<div class="p-5 grid grid-cols-2 sm:grid-cols-4 gap-3">${[['Họ tên', esc(S.me.name)], ['Phòng ban', esc(deptName(S.me.dept_id))], ['Chức danh', esc(titleName(S.me.title))], ['Quản lý trực tiếp', S.manager ? esc(S.manager.name) : '—']]
-          .map(([l, v]) => `<div class="p-3 rounded-xl bg-slate-50 border border-slate-200"><span class="text-[11px] text-slate-400 block">${l}</span><b class="text-sm text-slate-900">${v}</b></div>`).join('')}</div>`)
-        + `<div class="mt-6 p-5 rounded-2xl bg-amber-50 border border-amber-200 text-sm text-amber-900"><b class="block mb-1">${esc(f ? f.name : 'Chưa phân phòng ban')}</b>${esc(f ? f.desc : 'Tài khoản của bạn chưa được gán vào phòng ban nào nên chưa có công thức tính lương, thưởng, KPI.')}</div>`;
+        + card(`<div class="p-5 grid grid-cols-2 sm:grid-cols-4 gap-3">${info.map(([l, v]) => `<div class="p-3 rounded-xl bg-slate-50 border border-slate-200"><span class="text-[11px] text-slate-400 block">${l}</span><b class="text-sm text-slate-900">${v}</b></div>`).join('')}</div>`) + body;
       return;
     }
     try {
@@ -468,7 +502,7 @@
       const q = ST.q.toLowerCase();
       const rows = users.filter((u) => (ST.showInactive || u.active) && (!ST.dept || (ST.dept === '_none' ? !u.dept_id : u.dept_id === ST.dept)) && (!q || (u.name + ' ' + u.email).toLowerCase().includes(q)));
       el.innerHTML = pageHead('Nhân viên', admin ? 'Toàn bộ tài khoản trong hệ thống.' : 'Nhân viên thuộc quyền quản lý của bạn (trực tiếp và gián tiếp).',
-          admin ? `<div class="flex flex-wrap gap-2"><button id="st-org" class="${BTN_S}">🏢 Phòng ban & chức danh</button><button id="st-import" class="${BTN_S}">⇪ Nhập từ file CSV</button><button id="st-add" class="${BTN_P}">＋ Thêm nhân viên</button></div>` : '')
+          admin ? `<div class="flex flex-wrap gap-2"><button id="st-org" class="${BTN_S}">🏢 Phòng ban & chức danh</button><button id="st-formula" class="${BTN_S}">🧮 Công thức lương</button><button id="st-import" class="${BTN_S}">⇪ Nhập từ file CSV</button><button id="st-add" class="${BTN_P}">＋ Thêm nhân viên</button></div>` : '')
         + card(`<div class="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
             <div class="flex flex-col sm:flex-row gap-2"><input id="st-q" placeholder="Tìm tên hoặc email…" value="${esc(ST.q)}" class="${inputCls} sm:w-64">
               <select id="st-dept" class="${inputCls} sm:w-56"><option value="">Mọi phòng ban</option>${S.depts.map((d) => `<option value="${d.id}" ${ST.dept === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}<option value="_none" ${ST.dept === '_none' ? 'selected' : ''}>Chưa phân phòng</option></select></div>
@@ -482,7 +516,7 @@
               <td class="py-2.5 px-3"><span class="text-[11px] font-bold ${u.dept_id ? 'text-redsun-700' : 'text-slate-400'}">${esc(deptName(u.dept_id))}</span><br>${esc(titleName(u.title))}</td>
               <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded-full text-[11px] font-bold ${u.app_role === 'admin' ? 'bg-redsun-100 text-redsun-800' : u.app_role === 'manager' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}">${ROLE_LABEL[u.app_role]}</span></td>
               <td class="py-2.5 px-3">${u.manager_id ? mgrName(u.manager_id) : '—'}</td>
-              <td class="py-2.5 px-3 text-right"><span class="font-mono">${u.salary_w ? fmt(u.salary_w) : '—'}</span>${u.salary_w && ROLES[u.title] && ROLES[u.title].type !== 'ctv' ? `<br><span class="text-[11px] text-slate-500">${cbText(u)}</span>` : ''}</td>
+              <td class="py-2.5 px-3 text-right"><span class="font-mono">${u.salary_w ? fmt(u.salary_w) : '—'}</span>${u.salary_w && pOf(u.title).cb != null && pOf(u.title).type !== 'ctv' ? `<br><span class="text-[11px] text-slate-500">${cbText(u)}</span>` : ''}</td>
               <td class="py-2.5 px-3 text-xs">${!u.active ? 'Đã khóa' : u.must_change ? '<span class="text-amber-700">Chưa đổi mật khẩu tạm</span>' : '<span class="text-emerald-700">Đang hoạt động</span>'}</td>
               <td class="py-2.5 px-3 text-right whitespace-nowrap">
                 ${u.active && hasKpi(u) && (admin || u.id !== S.me.id) ? `<button data-kpi="${u.id}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Giao KPI</button>` : ''}
@@ -492,7 +526,7 @@
       qi.oninput = (e) => { ST.q = e.target.value; const p = e.target.selectionStart; renderStaff().then(() => { const i = document.getElementById('st-q'); i.focus(); i.setSelectionRange(p, p); }); };
       document.getElementById('st-inactive').onchange = (e) => { ST.showInactive = e.target.checked; renderStaff(); };
       document.getElementById('st-dept').onchange = (e) => { ST.dept = e.target.value; renderStaff(); };
-      if (admin) { document.getElementById('st-add').onclick = () => userForm(null, users); document.getElementById('st-import').onclick = importCsv; document.getElementById('st-org').onclick = () => orgManager(); }
+      if (admin) { document.getElementById('st-add').onclick = () => userForm(null, users); document.getElementById('st-import').onclick = importCsv; document.getElementById('st-org').onclick = () => orgManager('dept'); document.getElementById('st-formula').onclick = () => orgManager('formula'); }
       el.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => userForm(byId[+b.dataset.edit], users));
       el.querySelectorAll('[data-reset]').forEach((b) => b.onclick = () => resetPw(byId[+b.dataset.reset]));
       el.querySelectorAll('[data-kpi]').forEach((b) => b.onclick = () => { A.sel = new Set([+b.dataset.kpi]); S.rendered.assign = false; switchTab('assign'); });
@@ -531,29 +565,32 @@
       const d = deptOf(dSel.value), keys = deptTitleKeys(d).filter((k) => S.titles[k].active !== false || k === u.title), keep = keys.includes(tSel.value) ? tSel.value : keys.includes(u.title) ? u.title : (keys.includes('sales') ? 'sales' : keys[0]);
       tSel.innerHTML = keys.length ? keys.map((k) => `<option value="${k}" ${k === keep ? 'selected' : ''}>${esc(titleName(k))}</option>`).join('') : '<option value="">— Phòng chưa có chức danh —</option>';
       document.getElementById('uf-thint').innerHTML = d && !keys.length ? 'Phòng này chưa có chức danh. Bấm <b>🏢 Phòng ban & chức danh</b> để thêm.' : '';
-      const f = formulaOfDept(d), sales = !!(f && f.kpi);
+      const f = formulaOfDept(d), has = !!(f && f.template);
       const fb = document.getElementById('uf-formula');
-      fb.className = `sm:col-span-2 p-3 rounded-xl border text-xs ${sales ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`;
-      fb.innerHTML = `<b class="block text-[13px] mb-0.5">Cách tính lương, thưởng, KPI: ${esc(f ? f.name : 'Chưa phân phòng ban')}</b>${esc(f ? f.desc : 'Nhân viên chưa thuộc phòng ban nào: chỉ lưu thông tin, không tính lương, thưởng, KPI.')}`;
+      fb.className = `sm:col-span-2 p-3 rounded-xl border text-xs ${has ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`;
+      fb.innerHTML = `<b class="block text-[13px] mb-0.5">Cách tính lương, thưởng, KPI: ${esc(f ? f.name : 'Chưa phân phòng ban')}</b>${esc(f ? fDesc(f) : 'Nhân viên chưa thuộc phòng ban nào: chỉ lưu thông tin, không tính lương, thưởng, KPI.')}`;
       onTitle();
     };
     const onTitle = () => {
-      const sales = !!ROLES[tSel.value];
-      document.getElementById('uf-range').textContent = sales ? range(tSel.value) : 'Lưu để tham khảo; phòng ban chưa có công thức tính.';
-      document.getElementById('uf-cb-box').classList.toggle('hidden', !sales || ROLES[tSel.value].type === 'ctv');
-      document.getElementById('uf-split').classList.toggle('hidden', !sales);
+      const t = S.titles[tSel.value] || {}, pr = t.params;
+      const fixedPay = pr && pr.type !== 'ctv' && pr.max;
+      document.getElementById('uf-range').textContent = !pr ? 'Lưu để tham khảo; chức danh chưa có công thức tính.' : pr.type === 'ctv' ? 'Không áp dụng lương cố định' : `Khung ${rng(pr.min, pr.max)}`;
+      document.getElementById('uf-cb-box').classList.toggle('hidden', !fixedPay || pr.cb == null);
+      document.getElementById('uf-split').classList.toggle('hidden', !pr);
       if (isNew && rSel.value !== 'admin') rSel.value = isMgrTitle(tSel.value) ? 'manager' : 'staff';
     };
     tSel.onchange = onTitle; dSel.onchange = fillTitles;
     const wIn = document.getElementById('uf-w'), cbIn = document.getElementById('uf-cb');
     const split = () => {
-      const t = S.titles[tSel.value] || {}, W = parseVND(wIn.value);
-      const cbDef = t.cb || 0, cb = cbIn.value === '' ? cbDef : Math.min(100, Math.max(0, +cbIn.value)) / 100;
-      cbIn.placeholder = `Mặc định ${Math.round(cbDef * 100)}`;
+      const t = S.titles[tSel.value] || {}, pr = t.params || {}, W = parseVND(wIn.value);
+      const cbDef = pr.cb || 0, cb = cbIn.value === '' ? cbDef : Math.min(100, Math.max(0, +cbIn.value)) / 100;
+      cbIn.placeholder = `Mặc định ${Math.round(cbDef * 1000) / 10}`;
       document.getElementById('uf-hs').textContent = `${Math.round((1 - cb) * 1000) / 10}%`;
-      const isCtv = !ROLES[tSel.value] || ROLES[tSel.value].type === 'ctv';
-      document.getElementById('uf-split').innerHTML = isCtv ? 'Chức danh này không áp dụng lương cố định.'
-        : `Lương cơ bản S = <b>${fmt(W * cb)}</b> • Lương hiệu suất tối đa H = <b>${fmt(W * (1 - cb))}</b> • Target cá nhân mặc định (x${t.X}) = <b>${fmt(W * (1 - cb) * t.X)}</b>`;
+      const al = pr.allowance ? ` • Phụ cấp <b>${fmt(pr.allowance)}</b>` : '';
+      document.getElementById('uf-split').innerHTML = !t.params ? '' : pr.type === 'ctv' ? 'Chức danh này không áp dụng lương cố định (hoa hồng theo bậc doanh số).'
+        : t.template === 'sales_3p' ? `Lương cơ bản S = <b>${fmt(W * cb)}</b> • Lương hiệu suất tối đa H = <b>${fmt(W * (1 - cb))}</b> • Target cá nhân mặc định (x${pr.X}) = <b>${fmt(W * (1 - cb) * pr.X)}</b>`
+        : t.template === 'kpi_score' ? `Lương cơ bản = <b>${fmt(W * cb)}</b> • Lương hiệu suất tối đa (theo điểm KPI) = <b>${fmt(W * (1 - cb))}</b>${al}`
+        : `Thu nhập cố định = <b>${fmt(W)}</b>${al}`;
     };
     wIn.oninput = split; cbIn.oninput = split; tSel.addEventListener('change', split); dSel.addEventListener('change', split); fillTitles(); split();
     wIn.onblur = () => { const v = parseVND(wIn.value); wIn.value = v ? fmt(v) : ''; };
@@ -562,7 +599,7 @@
       if (!tSel.value) return showErr('uf-err', 'Phòng ban này chưa có chức danh. Hãy thêm chức danh cho phòng trước.');
       const body = { email: document.getElementById('uf-email').value, name: document.getElementById('uf-name').value, dept_id: dSel.value || null, title: tSel.value, app_role: rSel.value,
         manager_id: document.getElementById('uf-mgr').value || null, salary_w: parseVND(wIn.value), start_date: document.getElementById('uf-start').value || null,
-        cb_ratio: cbIn.value === '' || !ROLES[tSel.value] ? null : Math.min(100, Math.max(0, +cbIn.value)) / 100,
+        cb_ratio: cbIn.value === '' || pOf(tSel.value).cb == null ? null : Math.min(100, Math.max(0, +cbIn.value)) / 100,
         phone: document.getElementById('uf-phone').value.trim(), contact_email: document.getElementById('uf-cemail').value.trim() };
       if (!isNew) body.active = document.getElementById('uf-active').value === '1';
       try {
@@ -578,97 +615,287 @@
     };
   }
 
-  /* ---------- Phòng ban & chức danh (Admin) ---------- */
+  /* ---------- Phòng ban, chức danh & công thức lương, thưởng, KPI (Admin) ---------- */
   async function reloadOrg() { setOrg(await api('/api/org')); }
-  async function orgManager() {
+  const P100 = (v) => (v == null || v === '' ? '' : Math.round(v * 100000) / 1000);          // 0.125 → 12.5
+  const fromP = (v) => (String(v).trim() === '' ? null : +String(v).replace(',', '.') / 100);
+  const vndIn = (id, v, ph = '') => `<input id="${id}" inputmode="numeric" value="${v ? fmt(v) : ''}" placeholder="${ph}" class="${inputCls}" data-vnd>`;
+  const pctIn = (id, v, ph = '') => `<div class="relative"><input id="${id}" type="number" step="0.1" value="${P100(v)}" placeholder="${ph}" class="${inputCls} pr-7"><span class="absolute right-2 top-2 text-xs text-slate-400">%</span></div>`;
+  const bindVnd = (root) => root.querySelectorAll('[data-vnd]').forEach((i) => { i.onblur = () => { const v = parseVND(i.value); i.value = v ? fmt(v) : ''; }; });
+  const tplName = (f) => (tplOf(f) ? tplOf(f).short : 'Chưa có công thức');
+  // Tóm tắt tham số chức danh
+  function paramText(k) {
+    const t = S.titles[k], p = t.params, tp = t.template;
+    if (!tp || !p) return 'Chưa có công thức';
+    const T = S.templates[tp], parts = [T.types[p.type] || p.type];
+    if (p.type === 'ctv') return parts.concat('hoa hồng theo bậc doanh số').join(' • ');
+    if (p.max) parts.push('khung ' + rng(p.min, p.max));
+    if (p.cb != null) parts.push(`${P100(p.cb)}% CB`);
+    if (tp === 'sales_3p') { parts.push('X = ' + p.X); if (p.type === 'mgr' && p.c2) parts.push(`thưởng QL ${P100(p.c2.a)}%→${P100(p.c2.b)}%`); }
+    if (p.allowance) parts.push('phụ cấp ' + short(p.allowance));
+    return parts.join(' • ');
+  }
+  // Thu nhập theo điểm KPI (mẫu kpi_score) – dùng ở form công thức (thử tính) và tab KPI của bạn
+  function calcScore(cfg, p, W, achv) {
+    const cb = p.cb ?? 0.7, A = W * cb, H = W * (1 - cb);
+    const score = cfg.criteria.reduce((s, c, i) => s + c.weight * Math.min(Math.max(+achv[i] || 0, 0), cfg.item_cap), 0);
+    const B = score < cfg.min_score ? 0 : H * Math.min(score, cfg.hs_cap);
+    let rate = 0; for (const [from, r] of cfg.bonus || []) if (score >= from - 1e-9) rate = r;
+    const bonus = W * rate, allowance = p.allowance || 0;
+    return { A, H, score, B, rate, bonus, allowance, N: A + B + bonus + allowance };
+  }
+  const scoreRows = (c) => `<div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">${[['Lương cơ bản A', fmt(c.A)], ['Điểm KPI', (c.score * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + '%'], ['Lương hiệu suất B', fmt(c.B)], ['Thưởng hiệu suất', fmt(c.bonus) + (c.rate ? ` (${P100(c.rate)}% W)` : '')], ['Phụ cấp', fmt(c.allowance)]]
+    .map(([l, v]) => `<div class="p-2 rounded-lg bg-white border border-slate-200"><span class="block text-[10px] text-slate-400">${l}</span><b>${v}</b></div>`).join('')}</div>
+    <p class="mt-2 text-sm">Tổng thu nhập: <b class="text-redsun-800 text-lg font-mono">${fmt(c.N)}</b></p>`;
+
+  async function orgManager(tab = 'dept') {
     try { await reloadOrg(); } catch (e) { return alert(e.message); }
-    const fOpts = (sel) => Object.entries(S.formulas).map(([k, f]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
+    const fOpts = (sel) => Object.entries(S.formulas).map(([k, f]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(f.name)}${f.template ? ' — ' + esc(tplName(f)) : ''}</option>`).join('');
+    const after = async () => { await reloadOrg(); S.rendered.assign = false; C.kpiCache = {}; if (S.rendered.staff) renderStaff(); };
+    const tabs = () => `<div class="flex gap-1 px-6 pt-3 border-b border-slate-100">${[['dept', '🏢 Phòng ban & chức danh'], ['formula', '🧮 Công thức lương, thưởng, KPI']]
+      .map(([k, l]) => `<button data-otab="${k}" class="px-3 py-2 text-sm font-bold border-b-2 ${tab === k ? 'border-redsun-700 text-redsun-800' : 'border-transparent text-slate-500 hover:text-slate-800'}">${l}</button>`).join('')}</div>`;
+    const bindTabs = () => document.querySelectorAll('[data-otab]').forEach((b) => b.onclick = () => { tab = b.dataset.otab; draw(); });
+
+    /* ----- Tab phòng ban ----- */
     const deptCard = (d) => {
-      const f = formulaOfDept(d), fixed = !!(f && f.titles), keys = deptTitleKeys(d);
-      return `<div class="border border-slate-200 rounded-2xl ${d.active ? '' : 'opacity-60'}" data-dept="${d.id}">
+      const f = formulaOfDept(d), keys = deptTitleKeys(d);
+      return `<div class="border border-slate-200 rounded-2xl ${d.active ? '' : 'opacity-60'}">
         <div class="px-4 py-3 flex flex-wrap items-start justify-between gap-2 border-b border-slate-100">
           <div><b class="text-slate-900">${esc(d.name)}</b>${d.active ? '' : ' <span class="text-[11px] text-slate-500">(ngừng sử dụng)</span>'}
-            <span class="block text-[11px] text-slate-500">${d.users} nhân viên đang hoạt động • Công thức: <b class="${f && f.kpi ? 'text-emerald-700' : 'text-amber-700'}">${esc(f ? f.name : '')}</b></span></div>
-          <div class="flex gap-3 text-xs"><button data-dedit="${d.id}" class="font-bold text-slate-700 hover:underline">Sửa</button><button data-ddel="${d.id}" class="text-redsun-700 hover:underline">Xóa</button></div></div>
+            <span class="block text-[11px] text-slate-500">${d.users} nhân viên đang hoạt động • Công thức: <b class="${f && f.template ? 'text-emerald-700' : 'text-amber-700'}">${esc(f ? f.name : '')}</b>${f && f.template ? ` <span class="text-slate-400">(${esc(tplName(f))})</span>` : ''}</span></div>
+          <div class="flex gap-3 text-xs"><button data-dedit="${d.id}" class="font-bold text-slate-700 hover:underline">Sửa phòng</button><button data-ddel="${d.id}" class="text-redsun-700 hover:underline">Xóa</button></div></div>
         <div class="px-4 py-3">
-          <p class="text-[11px] font-bold text-slate-500 mb-1.5">CHỨC DANH ${fixed ? '<span class="font-normal">(theo công thức: đổi được tên hiển thị, không thêm/xóa)</span>' : ''}</p>
-          <div class="flex flex-wrap gap-1.5">${keys.length ? keys.map((k) => { const t = S.titles[k]; return `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg ${t.active === false ? 'bg-slate-50 text-slate-400 line-through' : 'bg-slate-100'} text-xs">${esc(titleName(k))}${t.mgr ? ' <span class="text-[10px] font-bold text-amber-700 no-underline">QL</span>' : ''}<span class="text-[10px] text-slate-400">· ${t.used || 0} người</span>
-              <button data-tedit="${k}" class="ml-0.5 px-1 rounded text-slate-600 hover:bg-white hover:text-slate-900" title="Sửa chức danh">✎ Sửa</button>${fixed ? '' : `<button data-tdel="${k}" class="text-slate-400 hover:text-redsun-700" title="Xóa">×</button>`}</span>`; }).join('') : '<span class="text-xs text-slate-400">Chưa có chức danh.</span>'}</div>
-          ${fixed ? '' : `<div class="mt-2 flex flex-wrap items-center gap-2"><input data-tnew="${d.id}" maxlength="80" placeholder="Tên chức danh mới, vd: Kế toán viên" class="${inputCls} sm:w-64">
-            <label class="text-xs text-slate-600 flex items-center gap-1"><input type="checkbox" data-tmgr="${d.id}"> Là quản lý</label>
-            <button data-tadd="${d.id}" class="${BTN_S}">＋ Thêm chức danh</button></div>`}
+          <div class="divide-y divide-slate-100">${keys.length ? keys.map((k) => { const t = S.titles[k]; return `<div class="py-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 ${t.active === false ? 'opacity-50' : ''}">
+              <b class="text-sm text-slate-900 ${t.active === false ? 'line-through' : ''}">${esc(t.name)}</b>${t.mgr ? '<span class="text-[10px] font-bold px-1.5 rounded bg-amber-100 text-amber-800">QUẢN LÝ</span>' : ''}${t.builtin ? '<span class="text-[10px] px-1.5 rounded bg-slate-100 text-slate-500">gốc</span>' : ''}
+              <span class="text-[11px] text-slate-500 flex-grow">${esc(paramText(k))} • ${t.used || 0} người</span>
+              <span class="text-xs whitespace-nowrap"><button data-tedit="${k}" class="font-bold text-slate-700 hover:underline">✎ Sửa</button>${t.custom ? ` <button data-tdel="${k}" class="ml-2 text-slate-400 hover:text-redsun-700">Xóa</button>` : ''}</span></div>`; }).join('') : '<p class="text-xs text-slate-400 py-1">Chưa có chức danh.</p>'}</div>
+          <button data-tadd="${d.id}" class="mt-2 text-xs font-bold text-redsun-700 hover:underline">＋ Thêm chức danh${f && f.template ? ' (tham số điền sẵn theo mẫu công thức)' : ''}</button>
         </div></div>`;
     };
-    const draw = () => {
-      openModal(`${modalHead('Phòng ban & chức danh', 'Mỗi phòng ban chọn một công thức tính lương, thưởng, KPI. Khi thêm/sửa nhân viên, chọn phòng ban rồi chọn chức danh của phòng.')}
-        <div class="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
-          <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+    const deptTab = () => `<div class="p-4 rounded-2xl bg-slate-50 border border-slate-200">
             <p class="text-xs font-bold text-slate-600 mb-2">THÊM PHÒNG BAN</p>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-2"><input id="og-name" maxlength="80" placeholder="Tên phòng ban, vd: Phòng Kế toán" class="${inputCls} sm:col-span-3">
               <select id="og-formula" class="${inputCls} sm:col-span-2">${fOpts('none')}</select><button id="og-add" class="${BTN_P} whitespace-nowrap">＋ Thêm phòng</button></div>
-            <p class="text-[11px] text-slate-500 mt-1.5">Hiện có 2 công thức: <b>Lương 3P – Khối Kinh doanh</b> (chức danh kinh doanh cố định) và <b>Chưa có công thức</b> (tự tạo chức danh, công thức bổ sung sau).</p>
-          </div>
-          ${errBox('og-err')}
-          ${S.depts.map(deptCard).join('')}
-          <div class="flex justify-end"><button onclick="closeModal()" class="${BTN_P}">Xong</button></div>
-        </div>`);
+            <p class="text-[11px] text-slate-500 mt-1.5">Chưa có công thức phù hợp? Tạo ở tab <b>🧮 Công thức</b> rồi chọn cho phòng.</p></div>
+          ${S.depts.map(deptCard).join('')}`;
+
+    /* ----- Tab công thức ----- */
+    const formulaTab = () => `<div class="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+            <p class="text-xs font-bold text-slate-600 mb-2">TẠO CÔNG THỨC MỚI TỪ MẪU</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${Object.entries(S.templates).map(([k, T]) => `<label class="p-3 rounded-xl border border-slate-200 bg-white cursor-pointer has-[:checked]:border-redsun-600 has-[:checked]:ring-2 has-[:checked]:ring-redsun-100">
+                <input type="radio" name="og-tpl" value="${k}" class="mr-1" ${k === 'kpi_score' ? 'checked' : ''}><b class="text-sm">${esc(T.name)}</b><span class="block text-[11px] text-slate-500 mt-1">${esc(T.desc)}</span></label>`).join('')}</div>
+            <div class="flex gap-2 mt-2"><input id="og-fname" maxlength="100" placeholder="Tên công thức, vd: Lương 3P – Phòng Kế toán" class="${inputCls}"><button id="og-fadd" class="${BTN_P} whitespace-nowrap">＋ Tạo công thức</button></div></div>
+          ${Object.values(S.formulas).filter((f) => f.template).map((f) => `<div class="border border-slate-200 rounded-2xl px-4 py-3">
+            <div class="flex flex-wrap items-start justify-between gap-2"><div><b class="text-slate-900">${esc(f.name)}</b>${f.builtin ? ' <span class="text-[10px] px-1.5 rounded bg-slate-100 text-slate-500">gốc</span>' : ''}
+              <span class="block text-[11px] text-slate-500">Mẫu: ${esc(S.templates[f.template].name)} • ${f.depts} phòng ban đang dùng: ${esc(S.depts.filter((d) => d.formula === f.id).map((d) => d.name).join(', ') || '—')}</span>
+              ${f.description ? `<span class="block text-xs text-slate-600 mt-1">${esc(f.description)}</span>` : ''}</div>
+              <div class="flex gap-3 text-xs whitespace-nowrap"><button data-fedit="${f.id}" class="font-bold text-slate-700 hover:underline">✎ Sửa công thức</button><button data-fcopy="${f.id}" class="text-slate-600 hover:underline">Nhân bản</button>${f.builtin ? '' : `<button data-fdel="${f.id}" class="text-redsun-700 hover:underline">Xóa</button>`}</div></div></div>`).join('')}`;
+
+    const draw = () => {
+      openModal(`${modalHead('Phòng ban, chức danh & công thức', 'Mỗi phòng ban chọn một công thức tính lương, thưởng, KPI. Mỗi chức danh có tham số riêng (khung lương, % lương cơ bản, hệ số KPI…) điền sẵn theo mẫu.')}
+        ${tabs()}<div class="px-6 py-5 space-y-4 max-h-[68vh] overflow-y-auto">${errBox('og-err')}${tab === 'dept' ? deptTab() : formulaTab()}</div>
+        <div class="px-6 pb-5 flex justify-end"><button onclick="closeModal()" class="${BTN_P}">Xong</button></div>`, false, true);
+      bindTabs();
       const box = document.getElementById('modal-box');
-      const run = async (fn) => { try { await fn(); await reloadOrg(); S.rendered.assign = false; draw(); if (S.rendered.staff) renderStaff(); } catch (e) { showErr('og-err', e.message); } };
-      document.getElementById('og-add').onclick = () => run(() => api('/api/org/departments', { method: 'POST', body: { name: document.getElementById('og-name').value, formula: document.getElementById('og-formula').value } }));
-      box.querySelectorAll('[data-dedit]').forEach((b) => b.onclick = () => deptForm(deptOf(b.dataset.dedit)));
-      box.querySelectorAll('[data-ddel]').forEach((b) => b.onclick = () => { const d = deptOf(b.dataset.ddel); if (confirm(`Xóa phòng ban "${d.name}" và các chức danh của phòng?`)) run(() => api('/api/org/departments/' + d.id, { method: 'DELETE' })); });
-      box.querySelectorAll('[data-tadd]').forEach((b) => b.onclick = () => { const id = b.dataset.tadd;
-        run(() => api(`/api/org/departments/${id}/titles`, { method: 'POST', body: { name: box.querySelector(`[data-tnew="${id}"]`).value, mgr: box.querySelector(`[data-tmgr="${id}"]`).checked } })); });
-      box.querySelectorAll('[data-tnew]').forEach((i) => i.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); box.querySelector(`[data-tadd="${i.dataset.tnew}"]`).click(); } });
-      box.querySelectorAll('[data-tedit]').forEach((b) => b.onclick = () => titleForm(b.dataset.tedit));
-      box.querySelectorAll('[data-tdel]').forEach((b) => b.onclick = () => { const k = b.dataset.tdel; if (confirm(`Xóa chức danh "${titleName(k)}"?`)) run(() => api('/api/org/titles/' + k, { method: 'DELETE' })); });
+      const run = async (fn, next) => { try { const r = await fn(); await after(); if (next) next(r); else draw(); } catch (e) { showErr('og-err', e.message); } };
+      const on = (sel, fn) => box.querySelectorAll(sel).forEach(fn);
+      if (tab === 'dept') {
+        document.getElementById('og-add').onclick = () => run(() => api('/api/org/departments', { method: 'POST', body: { name: document.getElementById('og-name').value, formula: document.getElementById('og-formula').value } }));
+        on('[data-dedit]', (b) => b.onclick = () => deptForm(deptOf(b.dataset.dedit)));
+        on('[data-ddel]', (b) => b.onclick = () => { const d = deptOf(b.dataset.ddel); if (confirm(`Xóa phòng ban "${d.name}" và các chức danh tự tạo của phòng?`)) run(() => api('/api/org/departments/' + d.id, { method: 'DELETE' })); });
+        on('[data-tadd]', (b) => b.onclick = () => titleForm(null, b.dataset.tadd));
+        on('[data-tedit]', (b) => b.onclick = () => titleForm(b.dataset.tedit));
+        on('[data-tdel]', (b) => b.onclick = () => { const k = b.dataset.tdel; if (confirm(`Xóa chức danh "${titleName(k)}"?`)) run(() => api('/api/org/titles/' + k, { method: 'DELETE' })); });
+      } else {
+        document.getElementById('og-fadd').onclick = () => run(() => api('/api/org/formulas', { method: 'POST', body: { template: (box.querySelector('[name=og-tpl]:checked') || {}).value, name: document.getElementById('og-fname').value } }), (r) => formulaForm(r.id));
+        on('[data-fedit]', (b) => b.onclick = () => formulaForm(b.dataset.fedit));
+        on('[data-fcopy]', (b) => b.onclick = () => { const f = S.formulas[b.dataset.fcopy], name = prompt('Tên công thức mới:', f.name + ' (bản sao)'); if (name) run(() => api('/api/org/formulas', { method: 'POST', body: { from: f.id, name } }), (r) => formulaForm(r.id)); });
+        on('[data-fdel]', (b) => b.onclick = () => { const f = S.formulas[b.dataset.fdel]; if (confirm(`Xóa công thức "${f.name}"?`)) run(() => api('/api/org/formulas/' + f.id, { method: 'DELETE' })); });
+      }
     };
-    // Sửa chức danh: chức danh theo công thức chỉ đổi tên hiển thị; chức danh tự tạo sửa đủ thông tin
-    const titleForm = (k) => {
-      const t = S.titles[k], fixed = !t.custom;
-      const otherDepts = S.depts.filter((d) => !(formulaOfDept(d) || {}).titles);
-      openModal(`${modalHead('Sửa chức danh', fixed ? `${esc(t.default_name || t.name)} • theo công thức ${esc((S.formulas[t.formula] || {}).name || '')}` : esc(deptName(t.dept_id)))}<form id="tfm" class="px-6 py-5 space-y-3">
-        ${field('Tên chức danh (tiếng Việt)', `<input id="tfm-name" maxlength="80" value="${esc(t.name)}" class="${inputCls}" required>`, fixed ? `Tên gốc: ${esc(t.default_name)}. Hiện trên danh sách nhân viên, Quy chế, Bảng tính, KPI.` : 'Hiện trên danh sách nhân viên và hồ sơ.')}
-        ${field('Tên tiếng Anh', `<input id="tfm-en" maxlength="80" value="${esc(t.en || '')}" placeholder="${fixed ? esc(t.default_en || '') : 'VD: Chief Accountant'}" class="${inputCls}">`, 'Dùng cho phần tư vấn viên trên proposal tiếng Anh.')}
-        ${fixed ? `<div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">Mã chức danh <b>${k}</b> gắn với công thức tính lương nên giữ nguyên: ${t.mgr ? 'chức danh quản lý, ' : ''}hệ số và khung lương không đổi khi đổi tên.</div>`
-          : `${field('Phòng ban', `<select id="tfm-dept" class="${inputCls}" ${t.used ? 'disabled' : ''}>${otherDepts.map((d) => `<option value="${d.id}" ${d.id === t.dept_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>`, t.used ? `Đang có ${t.used} nhân viên giữ chức danh này nên chưa chuyển phòng được.` : '')}
-            <div class="grid grid-cols-2 gap-3">${field('Thứ tự hiển thị', `<input id="tfm-sort" type="number" min="0" max="999" value="${t.sort || 0}" class="${inputCls}">`)}
-              ${field('Trạng thái', `<select id="tfm-active" class="${inputCls}"><option value="1" ${t.active !== false ? 'selected' : ''}>Đang sử dụng</option><option value="0" ${t.active === false ? 'selected' : ''}>Ngừng sử dụng</option></select>`)}</div>
-            <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="tfm-mgr" ${t.mgr ? 'checked' : ''}> Là chức danh quản lý <span class="text-[11px] text-slate-400">(gợi ý quyền Quản lý khi thêm nhân viên)</span></label>`}
-        ${errBox('tfm-err')}
-        <div class="flex justify-between gap-2">${fixed && (t.name !== t.default_name || (t.en || '') !== (t.default_en || '')) ? `<button type="button" id="tfm-reset" class="text-xs text-slate-500 hover:underline">Khôi phục tên gốc</button>` : '<span></span>'}
-          <span class="flex gap-2"><button type="button" id="tfm-back" class="${BTN_S}">Quay lại</button><button class="${BTN_P}">Lưu</button></span></div></form>`);
-      document.getElementById('tfm-back').onclick = draw;
-      const save = async (body) => {
-        try { await api('/api/org/titles/' + k, { method: 'PUT', body }); await reloadOrg(); S.rendered.assign = false; draw(); if (S.rendered.staff) renderStaff(); }
-        catch (err) { showErr('tfm-err', err.message); }
+
+    /* ----- Form chức danh: tên + tham số theo mẫu công thức của phòng ----- */
+    const titleForm = (k, deptId) => {
+      const isNew = !k, t = isNew ? { name: '', en: '', custom: true, dept_id: deptId, active: true, params: null, used: 0 } : S.titles[k];
+      const d = deptOf(t.dept_id) || (t.builtin ? S.depts.find((x) => x.formula === 'sales') : null);
+      const f = t.builtin ? S.formulas.sales : formulaOfDept(d), tp = t.builtin ? 'sales_3p' : (f && f.template), T = tp ? S.templates[tp] : null;
+      let p = t.params || (T ? JSON.parse(JSON.stringify(T.params.staff)) : null);
+      const moveDepts = S.depts;
+      const paramBox = () => {
+        if (!T) return `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">Phòng ban chưa có công thức: chức danh chỉ lưu tên. Chọn công thức cho phòng để khai báo khung lương và cách tính.</div>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="tf-mgr" ${t.mgr ? 'checked' : ''}> Là chức danh quản lý</label>`;
+        const ctv = p.type === 'ctv', mgr = p.type === 'mgr';
+        return `<div class="p-4 rounded-2xl border border-slate-200 space-y-3"><p class="text-xs font-bold text-slate-600">THAM SỐ TÍNH LƯƠNG • ${esc(f ? f.name : '')}</p>
+          ${field('Loại chức danh', `<select id="tf-type" class="${inputCls}" ${t.builtin ? 'disabled' : ''}>${Object.entries(T.types).map(([v, l]) => `<option value="${v}" ${p.type === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`, t.builtin ? 'Chức danh gốc giữ nguyên loại.' : 'Đổi loại sẽ điền lại tham số mặc định của loại đó.')}
+          ${ctv ? `<p class="text-xs text-slate-500">Cộng tác viên không có lương cố định; hoa hồng theo bậc doanh số của công thức.</p>` : `
+          <div class="grid grid-cols-2 gap-3">${field('Khung lương W tối thiểu', vndIn('tf-min', p.min))}${field('Khung lương W tối đa', vndIn('tf-max', p.max))}</div>
+          ${tp !== 'fixed' ? `<div class="grid grid-cols-2 gap-3">${field('% lương cơ bản (CB)', pctIn('tf-cb', p.cb), 'Phần còn lại là lương hiệu suất tối đa H.')}
+            ${tp === 'sales_3p' ? field('Hệ số KPI X', `<input id="tf-x" type="number" step="0.5" min="0.5" max="50" value="${p.X ?? ''}" class="${inputCls}">`, 'Target doanh số = H × X.') : field('Phụ cấp cố định / tháng', vndIn('tf-allow', p.allowance))}</div>` : field('Phụ cấp cố định / tháng', vndIn('tf-allow', p.allowance))}
+          ${tp === 'sales_3p' ? `${field('Hệ số X tăng dần cho người mới (tùy chọn)', `<input id="tf-ramp" value="${esc((p.ramp || []).join(', '))}" placeholder="VD: 6, 7, 8 (tháng 1, 2, 3)" class="${inputCls}">`)}
+            ${mgr ? `<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">${field('Trọng số cá nhân', pctIn('tf-wcn', p.wCn), 'Còn lại: đơn vị')}${field('Ngưỡng thưởng QL', pctIn('tf-t0', p.c2 && p.c2.t0), '% đạt đơn vị')}
+              ${field('Thưởng QL khi đạt 100%', pctIn('tf-a', p.c2 && p.c2.a), '% DS đơn vị')}${field('Thưởng QL khi đạt 120%', pctIn('tf-b', p.c2 && p.c2.b), '% DS đơn vị')}</div>` : ''}` : ''}`}
+          <p class="text-[11px] text-slate-500" id="tf-preview"></p></div>`;
       };
-      const rs = document.getElementById('tfm-reset'); if (rs) rs.onclick = () => save({ name: t.default_name, en: t.default_en || '' });
-      document.getElementById('tfm').onsubmit = (e) => {
-        e.preventDefault();
-        const body = { name: document.getElementById('tfm-name').value, en: document.getElementById('tfm-en').value };
-        if (!fixed) Object.assign(body, { mgr: document.getElementById('tfm-mgr').checked, sort: +document.getElementById('tfm-sort').value,
-          active: document.getElementById('tfm-active').value === '1', dept_id: document.getElementById('tfm-dept').value || t.dept_id });
-        save(body);
+      const readParams = () => {
+        if (!T) return null;
+        const v = (id) => { const e = document.getElementById(id); return e ? e.value : undefined; };
+        const out = { type: t.builtin ? p.type : v('tf-type') };
+        if (out.type === 'ctv') return out;
+        out.min = parseVND(v('tf-min')); out.max = parseVND(v('tf-max'));
+        if (tp !== 'fixed') out.cb = fromP(v('tf-cb'));
+        if (tp === 'sales_3p') {
+          out.X = +v('tf-x'); out.ramp = v('tf-ramp') || '';
+          if (out.type === 'mgr') { out.wCn = fromP(v('tf-wcn')); out.c2 = { t0: fromP(v('tf-t0')), a: fromP(v('tf-a')), b: fromP(v('tf-b')) }; }
+        } else out.allowance = parseVND(v('tf-allow'));
+        return out;
       };
+      const preview = () => {
+        const el = document.getElementById('tf-preview'); if (!el || !T) return;
+        const q = readParams(); if (q.type === 'ctv') { el.textContent = ''; return; }
+        const W = (q.min + q.max) / 2;
+        if (tp === 'sales_3p') el.innerHTML = `Ví dụ W = ${fmt(W)}: lương cơ bản ${fmt(W * q.cb)} • lương hiệu suất tối đa H ${fmt(W * (1 - q.cb))} • target doanh số ${fmt(W * (1 - q.cb) * q.X)}`;
+        else if (tp === 'kpi_score') el.innerHTML = `Ví dụ W = ${fmt(W)}: lương cơ bản ${fmt(W * q.cb)} • lương hiệu suất tối đa ${fmt(W * (1 - q.cb))} • phụ cấp ${fmt(q.allowance)}`;
+        else el.innerHTML = `Ví dụ W = ${fmt(W)}: thu nhập ${fmt(W + q.allowance)}/tháng (đã gồm phụ cấp).`;
+      };
+      const render = () => {
+        openModal(`${modalHead(isNew ? 'Thêm chức danh' : 'Sửa chức danh', `${esc(d ? d.name : 'Khối Kinh doanh')}${t.builtin ? ` • tên gốc: ${esc(t.default_name)}` : ''}`)}<form id="tfm" class="px-6 py-5 space-y-3 max-h-[75vh] overflow-y-auto">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">${field('Tên chức danh (tiếng Việt)', `<input id="tfm-name" maxlength="80" value="${esc(t.name)}" class="${inputCls}" required>`)}
+            ${field('Tên tiếng Anh', `<input id="tfm-en" maxlength="80" value="${esc(t.en || '')}" placeholder="${esc(t.default_en || 'VD: Chief Accountant')}" class="${inputCls}">`, 'Dùng cho proposal tiếng Anh.')}</div>
+          ${paramBox()}
+          ${t.custom && !isNew ? `<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">${field('Phòng ban', `<select id="tfm-dept" class="${inputCls}" ${t.used ? 'disabled' : ''}>${moveDepts.map((x) => `<option value="${x.id}" ${x.id === t.dept_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`, t.used ? `${t.used} người đang giữ: chưa chuyển phòng được.` : '')}
+            ${field('Thứ tự hiển thị', `<input id="tfm-sort" type="number" min="0" max="999" value="${t.sort || 0}" class="${inputCls}">`)}
+            ${field('Trạng thái', `<select id="tfm-active" class="${inputCls}"><option value="1" ${t.active !== false ? 'selected' : ''}>Đang sử dụng</option><option value="0" ${t.active === false ? 'selected' : ''}>Ngừng sử dụng</option></select>`)}</div>` : ''}
+          ${errBox('tfm-err')}
+          <div class="flex justify-between gap-2">${t.builtin ? '<button type="button" id="tfm-reset" class="text-xs text-slate-500 hover:underline">Khôi phục tên & tham số gốc</button>' : '<span></span>'}
+            <span class="flex gap-2"><button type="button" id="tfm-back" class="${BTN_S}">Quay lại</button><button class="${BTN_P}">${isNew ? 'Thêm chức danh' : 'Lưu'}</button></span></div></form>`, false, true);
+        const box = document.getElementById('modal-box');
+        bindVnd(box);
+        box.querySelectorAll('input,select').forEach((e) => e.addEventListener('input', preview));
+        const ty = document.getElementById('tf-type');
+        if (ty) ty.onchange = () => { t.name = document.getElementById('tfm-name').value; t.en = document.getElementById('tfm-en').value; p = JSON.parse(JSON.stringify(T.params[ty.value])); render(); };
+        document.getElementById('tfm-back').onclick = draw;
+        const save = async (body) => {
+          try {
+            if (isNew) await api(`/api/org/departments/${deptId}/titles`, { method: 'POST', body });
+            else await api('/api/org/titles/' + k, { method: 'PUT', body });
+            await after(); draw();
+          } catch (err) { showErr('tfm-err', err.message); }
+        };
+        const rs = document.getElementById('tfm-reset');
+        if (rs) rs.onclick = () => save({ name: t.default_name, en: t.default_en || '', params: t.default_params });
+        document.getElementById('tfm').onsubmit = (e) => {
+          e.preventDefault();
+          const body = { name: document.getElementById('tfm-name').value, en: document.getElementById('tfm-en').value };
+          if (T) body.params = readParams(); else body.mgr = document.getElementById('tf-mgr').checked;
+          if (t.custom && !isNew) Object.assign(body, { sort: +document.getElementById('tfm-sort').value, active: document.getElementById('tfm-active').value === '1', dept_id: document.getElementById('tfm-dept').value || t.dept_id });
+          if (body.dept_id && body.dept_id !== t.dept_id) delete body.params;     // chuyển phòng: lấy tham số theo công thức phòng mới
+          save(body);
+        };
+        preview();
+      };
+      render();
     };
+
+    /* ----- Form công thức: tham số chung theo mẫu ----- */
+    const formulaForm = (id) => {
+      const f = S.formulas[id], T = S.templates[f.template];
+      const cfg = JSON.parse(JSON.stringify(f.config || {}));
+      const bandRows = (key, kind) => (cfg[key] || []).map((b, i, a) => `<tr><td class="py-1 pr-2">${i === a.length - 1 ? '<span class="text-xs text-slate-500">Phần còn lại (trở lên)</span>'
+          : kind === 'money' ? `<input data-b="${key}" data-i="${i}" data-j="0" inputmode="numeric" value="${fmt(b[0])}" class="${inputCls}" data-vnd>` : `<div class="relative"><input data-b="${key}" data-i="${i}" data-j="0" type="number" step="1" value="${P100(b[0])}" class="${inputCls} pr-7"><span class="absolute right-2 top-2 text-xs text-slate-400">%</span></div>`}</td>
+        <td class="py-1 pr-2"><div class="relative"><input data-b="${key}" data-i="${i}" data-j="1" type="number" step="0.1" value="${P100(b[1])}" class="${inputCls} pr-7"><span class="absolute right-2 top-2 text-xs text-slate-400">%</span></div></td>
+        <td class="py-1 text-right">${a.length > 1 ? `<button type="button" data-brm="${key}" data-i="${i}" class="text-slate-400 hover:text-redsun-700 text-lg leading-none">×</button>` : ''}</td></tr>`).join('');
+      const bandTable = (key, title, h0, kind, hint) => `<div class="p-4 rounded-2xl border border-slate-200"><p class="text-xs font-bold text-slate-600">${title}</p><p class="text-[11px] text-slate-500 mb-2">${hint}</p>
+        <table class="w-full text-sm"><thead class="text-[11px] text-slate-500"><tr><th class="text-left font-semibold pb-1">${h0}</th><th class="text-left font-semibold pb-1">Tỷ lệ áp dụng cho phần trong bậc</th><th></th></tr></thead><tbody>${bandRows(key, kind)}</tbody></table>
+        <button type="button" data-badd="${key}" class="mt-1 text-xs font-bold text-redsun-700 hover:underline">＋ Thêm bậc</button></div>`;
+      const critRows = () => (cfg.criteria || []).map((c, i) => `<tr><td class="py-1 pr-2"><input data-c="name" data-i="${i}" value="${esc(c.name)}" class="${inputCls}" placeholder="Tên tiêu chí"></td>
+        <td class="py-1 pr-2 w-28"><div class="relative"><input data-c="weight" data-i="${i}" type="number" step="1" value="${P100(c.weight)}" class="${inputCls} pr-7"><span class="absolute right-2 top-2 text-xs text-slate-400">%</span></div></td>
+        <td class="py-1 pr-2"><input data-c="note" data-i="${i}" value="${esc(c.note || '')}" class="${inputCls}" placeholder="Cách đo (tùy chọn)"></td>
+        <td class="py-1 text-right"><button type="button" data-crm="${i}" class="text-slate-400 hover:text-redsun-700 text-lg leading-none">×</button></td></tr>`).join('');
+      const titlesUsing = () => Object.entries(S.titles).filter(([, t]) => t.formula === f.id && (t.builtin ? f.id === 'sales' : true));
+      const body = () => {
+        if (f.template === 'sales_3p') return `${bandTable('c1', 'THƯỞNG DOANH SỐ CÁ NHÂN C₁ (lũy tiến theo % đạt KPI cá nhân)', 'Đến mốc % đạt KPI', 'pct', 'Mỗi phần doanh số trong một bậc nhân với tỷ lệ của bậc đó. VD: mốc 50% tỷ lệ 2% nghĩa là phần doanh số từ 0 đến 50% target được thưởng 2%.')}
+          ${bandTable('ctv', 'HOA HỒNG CỘNG TÁC VIÊN (lũy tiến theo doanh số)', 'Đến mốc doanh số (VNĐ)', 'money', 'Áp dụng cho chức danh loại Cộng tác viên.')}
+          ${field('Target đội minh họa trên Bảng tính (× lương hiệu suất H)', `<input id="ff-kteam" type="number" min="1" max="500" value="${cfg.kteam_mult ?? 40}" class="${inputCls} sm:w-40">`)}
+          <p class="text-[11px] text-slate-500">Khung lương, % lương cơ bản, hệ số X, thưởng quản lý C₂ khai báo riêng cho từng chức danh (bên dưới).</p>`;
+        if (f.template === 'kpi_score') return `<div class="p-4 rounded-2xl border border-slate-200"><p class="text-xs font-bold text-slate-600">TIÊU CHÍ KPI & TRỌNG SỐ</p><p class="text-[11px] text-slate-500 mb-2">Cuối tháng chấm % hoàn thành từng tiêu chí; điểm KPI = Σ trọng số × % hoàn thành. Tổng trọng số phải bằng 100% (hiện <b id="ff-wsum"></b>).</p>
+            <table class="w-full text-sm"><thead class="text-[11px] text-slate-500"><tr><th class="text-left font-semibold">Tiêu chí</th><th class="text-left font-semibold">Trọng số</th><th class="text-left font-semibold">Cách đo</th><th></th></tr></thead><tbody>${critRows()}</tbody></table>
+            <button type="button" id="ff-cadd" class="mt-1 text-xs font-bold text-redsun-700 hover:underline">＋ Thêm tiêu chí</button></div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">${field('Trần % mỗi tiêu chí', pctIn('ff-cap', cfg.item_cap), 'VD 120%: vượt hơn cũng chỉ tính 120%.')}
+            ${field('Điểm sàn', pctIn('ff-min', cfg.min_score), 'Dưới điểm này không hưởng lương hiệu suất.')}${field('Trần lương hiệu suất', pctIn('ff-hscap', cfg.hs_cap), 'B = H × điểm KPI, tối đa H × mức này.')}</div>
+          <div class="p-4 rounded-2xl border border-slate-200"><p class="text-xs font-bold text-slate-600">THƯỞNG HIỆU SUẤT THEO BẬC ĐIỂM</p><p class="text-[11px] text-slate-500 mb-2">Đạt từ mốc điểm nào thì thưởng = tỷ lệ × W của bậc cao nhất đạt được.</p>
+            <table class="w-full text-sm"><thead class="text-[11px] text-slate-500"><tr><th class="text-left font-semibold">Điểm KPI từ</th><th class="text-left font-semibold">Thưởng (% W)</th><th></th></tr></thead><tbody>${(cfg.bonus || []).map((b, i) => `<tr>
+              <td class="py-1 pr-2"><div class="relative"><input data-bn="0" data-i="${i}" type="number" step="1" value="${P100(b[0])}" class="${inputCls} pr-7"><span class="absolute right-2 top-2 text-xs text-slate-400">%</span></div></td>
+              <td class="py-1 pr-2"><div class="relative"><input data-bn="1" data-i="${i}" type="number" step="0.5" value="${P100(b[1])}" class="${inputCls} pr-7"><span class="absolute right-2 top-2 text-xs text-slate-400">%</span></div></td>
+              <td class="py-1 text-right"><button type="button" data-bnrm="${i}" class="text-slate-400 hover:text-redsun-700 text-lg leading-none">×</button></td></tr>`).join('')}</tbody></table>
+            <button type="button" id="ff-bnadd" class="mt-1 text-xs font-bold text-redsun-700 hover:underline">＋ Thêm bậc thưởng</button></div>
+          <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200"><p class="text-xs font-bold text-slate-600 mb-2">THỬ TÍNH</p>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">${field('W', vndIn('tt-w', 12e6))}${field('% CB', pctIn('tt-cb', 0.7))}${field('Phụ cấp', vndIn('tt-al', 0))}${field('Hoàn thành mọi tiêu chí', pctIn('tt-all', 1))}</div><div id="tt-out"></div></div>`;
+        return '<p class="text-sm text-slate-600">Mẫu này không có tham số chung. Khung lương và phụ cấp khai báo theo từng chức danh.</p>';
+      };
+      const readCfg = () => {
+        const box = document.getElementById('modal-box');
+        box.querySelectorAll('[data-b]').forEach((e) => { const b = cfg[e.dataset.b][+e.dataset.i]; b[+e.dataset.j] = e.hasAttribute('data-vnd') ? parseVND(e.value) : fromP(e.value); });
+        box.querySelectorAll('[data-c]').forEach((e) => { const c = cfg.criteria[+e.dataset.i]; c[e.dataset.c] = e.dataset.c === 'weight' ? fromP(e.value) : e.value; });
+        box.querySelectorAll('[data-bn]').forEach((e) => { cfg.bonus[+e.dataset.i][+e.dataset.bn] = fromP(e.value); });
+        const v = (id) => document.getElementById(id);
+        if (v('ff-kteam')) cfg.kteam_mult = +v('ff-kteam').value;
+        if (v('ff-cap')) { cfg.item_cap = fromP(v('ff-cap').value); cfg.min_score = fromP(v('ff-min').value); cfg.hs_cap = fromP(v('ff-hscap').value); }
+        f.name = v('ff-name').value; f.description = v('ff-desc').value;
+      };
+      const render = () => {
+        openModal(`${modalHead('Sửa công thức', `Mẫu: ${esc(T.name)}`)}<form id="ffm" class="px-6 py-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          ${field('Tên công thức', `<input id="ff-name" maxlength="100" value="${esc(f.name)}" class="${inputCls}" required>`)}
+          ${field('Mô tả / ghi chú áp dụng (tùy chọn)', `<textarea id="ff-desc" rows="2" maxlength="1000" class="${inputCls}">${esc(f.description || '')}</textarea>`, esc(T.desc))}
+          ${body()}
+          <div class="p-4 rounded-2xl border border-slate-200"><p class="text-xs font-bold text-slate-600 mb-1">CHỨC DANH DÙNG CÔNG THỨC NÀY</p>
+            ${titlesUsing().length ? titlesUsing().map(([k, t]) => `<div class="py-1 flex items-center gap-2 text-sm"><b>${esc(t.name)}</b><span class="text-[11px] text-slate-500 flex-grow">${esc(paramText(k))}</span><button type="button" data-tedit2="${k}" class="text-xs font-bold text-slate-700 hover:underline">✎ Sửa</button></div>`).join('')
+              : '<p class="text-xs text-slate-400">Chưa có chức danh nào. Chọn công thức này cho một phòng ban rồi thêm chức danh cho phòng.</p>'}</div>
+          ${errBox('ffm-err')}
+          <div class="flex justify-end gap-2"><button type="button" id="ffm-back" class="${BTN_S}">Quay lại</button><button class="${BTN_P}">Lưu công thức</button></div></form>`, false, true);
+        const box = document.getElementById('modal-box');
+        bindVnd(box);
+        const sum = () => { const e = document.getElementById('ff-wsum'); if (!e) return; readCfg(); const t = cfg.criteria.reduce((s, c) => s + (c.weight || 0), 0); e.textContent = (Math.round(t * 1000) / 10) + '%'; e.className = Math.abs(t - 1) < 0.001 ? 'text-emerald-700' : 'text-redsun-700'; };
+        const test = () => { const o = document.getElementById('tt-out'); if (!o) return; readCfg();
+          const all = fromP(document.getElementById('tt-all').value) || 0;
+          try { o.innerHTML = scoreRows(calcScore(cfg, { cb: fromP(document.getElementById('tt-cb').value), allowance: parseVND(document.getElementById('tt-al').value) }, parseVND(document.getElementById('tt-w').value), cfg.criteria.map(() => all))); } catch (e) { o.textContent = ''; } };
+        box.querySelectorAll('input').forEach((e) => e.addEventListener('input', () => { sum(); test(); }));
+        const redraw = () => { readCfg(); render(); };
+        box.querySelectorAll('[data-badd]').forEach((b) => b.onclick = () => { readCfg(); const a = cfg[b.dataset.badd], last = a[a.length - 1], prev = a.length > 1 ? a[a.length - 2][0] : 0;
+          a.splice(a.length - 1, 0, [b.dataset.badd === 'ctv' ? (prev || 0) + 50e6 : (prev || 0) + 0.2, last[1]]); render(); });
+        box.querySelectorAll('[data-brm]').forEach((b) => b.onclick = () => { readCfg(); const a = cfg[b.dataset.brm]; a.splice(+b.dataset.i, 1); a[a.length - 1][0] = null; render(); });
+        const ca = document.getElementById('ff-cadd'); if (ca) ca.onclick = () => { readCfg(); cfg.criteria.push({ name: '', weight: 0, note: '' }); render(); };
+        box.querySelectorAll('[data-crm]').forEach((b) => b.onclick = () => { readCfg(); cfg.criteria.splice(+b.dataset.crm, 1); render(); });
+        const ba = document.getElementById('ff-bnadd'); if (ba) ba.onclick = () => { readCfg(); const l = cfg.bonus[cfg.bonus.length - 1]; cfg.bonus.push([l ? l[0] + 0.1 : 1, l ? l[1] + 0.05 : 0.05]); render(); };
+        box.querySelectorAll('[data-bnrm]').forEach((b) => b.onclick = () => { readCfg(); cfg.bonus.splice(+b.dataset.bnrm, 1); render(); });
+        box.querySelectorAll('[data-tedit2]').forEach((b) => b.onclick = () => titleForm(b.dataset.tedit2));
+        document.getElementById('ffm-back').onclick = () => { tab = 'formula'; draw(); };
+        document.getElementById('ffm').onsubmit = async (e) => {
+          e.preventDefault(); readCfg();
+          try { await api('/api/org/formulas/' + f.id, { method: 'PUT', body: { name: f.name, description: f.description, config: cfg } }); await after(); tab = 'formula'; draw(); }
+          catch (err) { showErr('ffm-err', err.message); }
+        };
+        void redraw; sum(); test();
+      };
+      render();
+    };
+
     const deptForm = (d) => {
       openModal(`${modalHead('Sửa phòng ban', esc(d.name))}<form id="dfm" class="px-6 py-5 space-y-3">
         ${field('Tên phòng ban', `<input id="dfm-name" maxlength="80" value="${esc(d.name)}" class="${inputCls}" required>`)}
-        ${field('Công thức lương, thưởng, KPI', `<select id="dfm-formula" class="${inputCls}" ${d.users ? 'disabled' : ''}>${fOpts(d.formula)}</select>`, d.users ? 'Phòng đang có nhân viên nên chưa đổi được công thức.' : '')}
+        ${field('Công thức lương, thưởng, KPI', `<select id="dfm-formula" class="${inputCls}">${fOpts(d.formula)}</select>`, d.users ? 'Phòng đang có nhân viên: chỉ đổi được sang công thức cùng mẫu.' : 'Đổi sang mẫu khác: tham số các chức danh tự tạo của phòng được điền lại theo mẫu mới.')}
         <div id="dfm-desc" class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600"></div>
         ${field('Thứ tự hiển thị', `<input id="dfm-sort" type="number" min="0" max="999" value="${d.sort || 0}" class="${inputCls}">`)}
         ${field('Trạng thái', `<select id="dfm-active" class="${inputCls}"><option value="1" ${d.active ? 'selected' : ''}>Đang sử dụng</option><option value="0" ${d.active ? '' : 'selected'}>Ngừng sử dụng (ẩn khỏi danh sách chọn khi thêm nhân viên)</option></select>`)}
         ${errBox('dfm-err')}
-        <div class="flex justify-end gap-2"><button type="button" id="dfm-back" class="${BTN_S}">Quay lại</button><button class="${BTN_P}">Lưu</button></div></form>`);
-      const fSel = document.getElementById('dfm-formula'), desc = () => { document.getElementById('dfm-desc').textContent = (S.formulas[fSel.value] || {}).desc || ''; };
+        <div class="flex justify-end gap-2"><button type="button" id="dfm-back" class="${BTN_S}">Quay lại</button><button class="${BTN_P}">Lưu</button></div></form>`, false, true);
+      const fSel = document.getElementById('dfm-formula'), desc = () => { document.getElementById('dfm-desc').textContent = fDesc(S.formulas[fSel.value]); };
       fSel.onchange = desc; desc();
       document.getElementById('dfm-back').onclick = draw;
       document.getElementById('dfm').onsubmit = async (e) => {
         e.preventDefault();
         try {
           await api('/api/org/departments/' + d.id, { method: 'PUT', body: { name: document.getElementById('dfm-name').value, formula: fSel.value, sort: +document.getElementById('dfm-sort').value, active: document.getElementById('dfm-active').value === '1' } });
-          await reloadOrg(); draw(); if (S.rendered.staff) renderStaff();
+          await after(); draw();
         } catch (err) { showErr('dfm-err', err.message); }
       };
     };
@@ -717,7 +944,7 @@
       rows = recs.map((r) => {
         const email = (r.tai_khoan || r.email || '').toLowerCase();
         const dpt = r.phong_ban && S.depts.find((d) => d.name.toLowerCase() === r.phong_ban.trim().toLowerCase());
-        const own = dpt && !(formulaOfDept(dpt) || {}).titles ? deptTitleKeys(dpt).find((k) => titleName(k).toLowerCase() === (r.chuc_danh || '').trim().toLowerCase()) : null;
+        const own = dpt ? deptTitleKeys(dpt).find((k) => titleName(k).toLowerCase() === (r.chuc_danh || '').trim().toLowerCase()) : null;
         const title = own || guessTitle(r.chuc_danh);
         return { email, name: r.ho_ten || email, dept_name: r.phong_ban || undefined, title, app_role: email === 'admin' ? 'admin' : isMgrTitle(title) ? 'manager' : 'staff',
           password: r.mat_khau || '', salary_w: parseVND(r.luong_w || ''), cb_ratio: (() => { if (!r.ty_le_cb) return null; const v = parseFloat(String(r.ty_le_cb).replace('%', '').replace(',', '.')); return isNaN(v) ? null : (v > 1 ? v / 100 : v); })(), manager_email: r.quan_ly || r.quan_ly_email || '' };
