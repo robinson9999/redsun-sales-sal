@@ -10,6 +10,10 @@ Tab **Nhân viên** → **🏢 Phòng ban & chức danh**. Mỗi phòng ban ch�
 - **Lương 3P – Khối Kinh doanh**: chức danh cố định (CCO, SM, Team Lead, Senior, Sales Exec, Fresher, CTV), có giao KPI và bảng tính thu nhập. Phòng Kinh doanh được tạo sẵn; nhân viên kinh doanh cũ đã được chuyển vào.
 - **Chưa có công thức**: Admin tự thêm chức danh cho phòng (tick **Là quản lý** nếu là chức danh quản lý). Nhân viên phòng này chỉ lưu thông tin; chưa giao KPI, chưa có bảng tính cho đến khi bổ sung công thức.
 
+**Sửa chức danh:** bấm **✎ Sửa** cạnh chức danh.
+- Chức danh theo công thức (khối KD): đổi được **tên tiếng Việt** và **tên tiếng Anh** (dùng trên proposal EN); hệ số, khung lương giữ nguyên. Có nút **Khôi phục tên gốc**. Tên mới hiện ở mọi nơi: danh sách nhân viên, Quy chế, Bảng tính, KPI, proposal.
+- Chức danh tự tạo: đổi tên VN/EN, cờ **Là quản lý**, thứ tự hiển thị, **Ngừng sử dụng** (ẩn khỏi danh sách chọn, người đang giữ vẫn giữ), chuyển sang phòng khác (khi chưa có ai giữ chức danh).
+
 Chỉ xóa được phòng ban/chức danh khi không còn nhân viên nào gán vào. Chỉ đổi được công thức của phòng khi phòng chưa có nhân viên. Phòng **Ngừng sử dụng** sẽ ẩn khỏi danh sách chọn khi thêm nhân viên.
 
 > Bổ sung công thức cho phòng ban khác (vd Kế toán, Kỹ thuật): khai báo trong `FORMULAS` của worker (tên, mô tả, có KPI hay không, danh sách chức danh nếu cố định) và phần tính toán tương ứng ở giao diện.

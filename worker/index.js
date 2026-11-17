@@ -39,17 +39,28 @@ const DEFAULT_DEPT = { id: 'kinh-doanh', name: 'Phòng Kinh doanh', formula: 'sa
 const slugId = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 // Danh sách phòng ban + chức danh tự tạo; titles = bảng chức danh đầy đủ (chức danh công thức + chức danh tự tạo)
+// Chức danh của công thức (vd khối KD) giữ nguyên mã & tham số tính lương; Admin chỉ đổi tên hiển thị (lưu ở title_names).
+let ORG_TITLES = null;                         // bản mới nhất, dùng cho chức danh trên proposal / email
 async function loadOrg(env) {
-  const [d, t, c] = await env.DB.batch([
+  const [d, t, c, tn, tu] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM departments ORDER BY sort, name'),
     env.DB.prepare('SELECT * FROM dept_titles ORDER BY sort, name'),
-    env.DB.prepare('SELECT dept_id, COUNT(*) AS n FROM users WHERE active=1 GROUP BY dept_id')
+    env.DB.prepare('SELECT dept_id, COUNT(*) AS n FROM users WHERE active=1 GROUP BY dept_id'),
+    env.DB.prepare('SELECT * FROM title_names'),
+    env.DB.prepare('SELECT title, COUNT(*) AS n FROM users GROUP BY title')
   ]);
   const counts = Object.fromEntries(c.results.map((x) => [x.dept_id, x.n]));
+  const used = Object.fromEntries(tu.results.map((x) => [x.title, x.n]));
   const departments = d.results.map((x) => ({ ...x, active: !!x.active, users: counts[x.id] || 0 }));
+  const ren = Object.fromEntries(tn.results.map((x) => [x.id, x]));
   const titles = {};
-  for (const [k, v] of Object.entries(TITLES)) titles[k] = { ...v, formula: SALES_TITLES.includes(k) ? 'sales' : null };
-  for (const x of t.results) titles[x.id] = { name: x.name, mgr: !!x.mgr, dept_id: x.dept_id, custom: true, active: !!x.active };
+  for (const [k, v] of Object.entries(TITLES)) {
+    const r = ren[k] || {};
+    titles[k] = { ...v, name: r.name || v.name, en: r.en || v.en || '', default_name: v.name, default_en: v.en || '',
+      formula: SALES_TITLES.includes(k) ? 'sales' : null, used: used[k] || 0 };
+  }
+  for (const x of t.results) titles[x.id] = { name: x.name, en: x.en || '', mgr: !!x.mgr, dept_id: x.dept_id, sort: x.sort, custom: true, active: !!x.active, used: used[x.id] || 0 };
+  ORG_TITLES = titles;
   return { departments, titles, deptById: Object.fromEntries(departments.map((x) => [x.id, x])) };
 }
 // Chức danh hợp lệ của một phòng ban
@@ -222,6 +233,7 @@ async function ensureSchema(env) {
       sort INTEGER NOT NULL DEFAULT 0,
       active INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS title_names (id TEXT PRIMARY KEY, name TEXT, en TEXT)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_users_manager ON users(manager_id)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_kpis_period ON kpis(year, month)`)
   ]);
@@ -232,7 +244,7 @@ async function ensureSchema(env) {
   }
   // Nâng cấp cấu trúc cho dữ liệu đã có (bỏ qua nếu cột đã tồn tại)
   for (const sql of ['ALTER TABLE users ADD COLUMN cb_ratio REAL', 'ALTER TABLE kpis ADD COLUMN cb REAL', 'ALTER TABLE sessions ADD COLUMN last_seen INTEGER',
-    'ALTER TABLE users ADD COLUMN phone TEXT', 'ALTER TABLE users ADD COLUMN contact_email TEXT', 'ALTER TABLE users ADD COLUMN dept_id TEXT']) {
+    'ALTER TABLE users ADD COLUMN phone TEXT', 'ALTER TABLE users ADD COLUMN contact_email TEXT', 'ALTER TABLE users ADD COLUMN dept_id TEXT', 'ALTER TABLE dept_titles ADD COLUMN en TEXT']) {
     try { await env.DB.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(String(e.message))) throw e; }
   }
   // Lần đầu có phòng ban: tạo Phòng Kinh doanh, chuyển nhân viên đang có chức danh kinh doanh vào phòng này
@@ -508,8 +520,8 @@ async function canSeeShare(env, me, row) {
 }
 // Thông tin điền vào proposal: nhân viên (từ hồ sơ trong tab Nhân viên) + công ty (tab Cài đặt) + khách hàng
 const staffTitle = (u, lang = 'vi') => {
-  const t = u.title && u.title !== 'other' && TITLES[u.title];
-  if (lang === 'en') return t ? t.en : 'Solution Consultant';
+  const t = u.title && u.title !== 'other' && (ORG_TITLES || TITLES)[u.title];
+  if (lang === 'en') return t && t.en ? t.en : 'Solution Consultant';
   return t ? t.name.replace(/\s*\(.*\)$/, '') : 'Chuyên viên tư vấn';
 };
 const staffEmail = (u) => parseEmails(u.contact_email || '')[0] || parseEmails(u.email || '')[0] || '';
@@ -746,6 +758,17 @@ async function api(req, env, url, me, ctx) {
       .bind(id, d.id, name, body.mgr ? 1 : 0, deptTitleKeys(org, d).length, now()).run();
     return json({ ok: true, id });
   }
+  om = p.match(/^\/api\/org\/titles\/([a-z]+)$/);
+  if (om && TITLES[om[1]] && method === 'PUT') {          // chức danh theo công thức: chỉ đổi tên hiển thị (VN/EN)
+    const k = om[1], name = String(body.name ?? '').trim().slice(0, 80), en = String(body.en ?? '').trim().slice(0, 80);
+    if (!name) return bad('Chưa nhập tên chức danh.');
+    const org = await loadOrg(env);
+    if (Object.entries(org.titles).some(([x, v]) => x !== k && !v.custom && v.name.toLowerCase() === name.toLowerCase())) return bad('Đã có chức danh khác trùng tên này.');
+    const def = TITLES[k];
+    if (name === def.name && en === (def.en || '')) await env.DB.prepare('DELETE FROM title_names WHERE id=?1').bind(k).run();
+    else await env.DB.prepare('INSERT INTO title_names (id,name,en) VALUES (?1,?2,?3) ON CONFLICT(id) DO UPDATE SET name=excluded.name, en=excluded.en').bind(k, name, en || null).run();
+    return json({ ok: true });
+  }
   om = p.match(/^\/api\/org\/titles\/(t-[a-f0-9]+)$/);
   if (om && (method === 'PUT' || method === 'DELETE')) {
     const t = await env.DB.prepare('SELECT * FROM dept_titles WHERE id=?1').bind(om[1]).first();
@@ -760,7 +783,22 @@ async function api(req, env, url, me, ctx) {
     if (!name) return bad('Chưa nhập tên chức danh.');
     const dup = await env.DB.prepare('SELECT id FROM dept_titles WHERE dept_id=?1 AND lower(name)=lower(?2) AND id<>?3').bind(t.dept_id, name, t.id).first();
     if (dup) return bad('Phòng ban đã có chức danh này.');
-    await env.DB.prepare('UPDATE dept_titles SET name=?1, mgr=?2 WHERE id=?3').bind(name, body.mgr === undefined ? t.mgr : (body.mgr ? 1 : 0), t.id).run();
+    // Đổi sang phòng khác (cùng loại "tự tạo chức danh") chỉ khi chưa có nhân viên giữ chức danh này
+    let dept_id = t.dept_id;
+    if (body.dept_id !== undefined && body.dept_id !== t.dept_id) {
+      const org = await loadOrg(env), nd = org.deptById[body.dept_id];
+      if (!nd) return bad('Phòng ban không tồn tại.');
+      if ((FORMULAS[nd.formula] || {}).titles) return bad('Phòng này dùng chức danh theo công thức, không chuyển chức danh vào được.');
+      if (used.n) return bad(`Chức danh đang gán cho ${used.n} nhân viên nên chưa chuyển phòng được.`);
+      dept_id = nd.id;
+    }
+    const dup2 = await env.DB.prepare('SELECT id FROM dept_titles WHERE dept_id=?1 AND lower(name)=lower(?2) AND id<>?3').bind(dept_id, name, t.id).first();
+    if (dup2) return bad('Phòng ban đã có chức danh này.');
+    await env.DB.prepare('UPDATE dept_titles SET name=?1, mgr=?2, en=?3, sort=?4, active=?5, dept_id=?6 WHERE id=?7').bind(name,
+      body.mgr === undefined ? t.mgr : (body.mgr ? 1 : 0),
+      body.en === undefined ? t.en : (String(body.en || '').trim().slice(0, 80) || null),
+      body.sort === undefined ? t.sort : Math.max(0, Math.min(999, Math.round(+body.sort || 0))),
+      body.active === undefined ? t.active : (body.active ? 1 : 0), dept_id, t.id).run();
     return json({ ok: true });
   }
   if (p === '/api/me/password' && method === 'POST') {
@@ -1155,6 +1193,7 @@ async function api(req, env, url, me, ctx) {
     const r = await env.DB.prepare(`SELECT s.*, u.name AS user_name FROM proposal_shares s JOIN users u ON u.id = s.user_id
         WHERE ${where} ORDER BY s.created_at DESC LIMIT 300`).bind(...binds).all();
     const cfg = await getSettings(env);
+    await loadOrg(env);                                // tên chức danh mới nhất cho phần tư vấn viên
     return json({ proposals: PROPOSALS, shares: r.results.map((x) => shareView(x, url)), mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg),
       fields: proposalFields(cfg, me), fields_en: proposalFields(cfg, me, {}, 'en'), from_name: `${me.name} - ${cfg.company_short || cfg.company_name}` });
   }
@@ -1168,6 +1207,7 @@ async function api(req, env, url, me, ctx) {
     if (send && !emails.length) return bad('Email khách hàng không hợp lệ.');
     if (emails.length > 5 || cc.length > 10) return bad('Tối đa 5 email nhận và 10 email CC.');
     const days = intSetting(body.days, 30, 1, 90);
+    await loadOrg(env);
     const fields = proposalFields(await getSettings(env), me, { kh: customer_company, nguoi: customer_name }, propLang(prop));
     const token = b64(crypto.getRandomValues(new Uint8Array(24))).replace(/[+/=]/g, (c) => ({ '+': '-', '/': '_', '=': '' }[c]));
     const t = now();
