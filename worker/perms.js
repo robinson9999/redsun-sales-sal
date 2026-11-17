@@ -11,7 +11,7 @@ export const SCOPES = { all: 'Toàn công ty', team: 'Bản thân & cấp dướ
 
 // Mục trên tool → các hành động áp dụng (kèm diễn giải hiện trên màn hình phân quyền)
 export const MODULES = {
-  policy:   { name: 'Quy chế lương thưởng', acts: { view: 'Đọc quy chế' } },
+  policy:   { name: 'Quy chế lương thưởng', acts: { view: 'Đọc quy chế đang ban hành', add: 'Ban hành phiên bản mới, tạo quy chế mới', edit: 'Soạn thảo, sửa bản nháp, khôi phục bản cũ thành nháp', delete: 'Hủy bản nháp' } },
   calc:     { name: 'Bảng tính thu nhập', acts: { view: 'Dùng bảng tính (của mình; theo phạm vi: của cấp dưới)' } },
   kpi:      { name: 'KPI của bạn', acts: { view: 'Xem KPI & ước tính thu nhập của mình' } },
   survey:   { name: 'Phiếu khảo sát', acts: { view: 'Xem phiếu (theo phạm vi)', add: 'Lập phiếu mới', edit: 'Sửa / gửi lại phiếu', delete: 'Xóa phiếu' } },

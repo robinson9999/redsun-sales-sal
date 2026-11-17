@@ -241,7 +241,242 @@
     if (t === 'assign') renderAssign();
     if (t === 'staff') renderStaff(true);
     if (t === 'perm') renderPerm();
+    if (t === 'policy') renderPolicy();
   };
+
+  /* =========================================================================
+     TRANG: QUY CHẾ – đọc bản đang ban hành; người có quyền soạn thảo, ban hành, xem lịch sử
+     Nội dung lưu dạng các mục HTML; khối số liệu <div data-block> & tham số <span data-cfg> tự điền.
+     ========================================================================= */
+  const PO = { list: null, sel: null, mode: 'view', dirty: false };
+  const polCan = (a) => !!(PO.can && PO.can[a]);
+  function policyHtml(c, opts = {}) {
+    // Văn bản đã được máy chủ lọc an toàn; chỉ bọc khung hiển thị
+    return `<div class="card bg-gradient-to-br from-white via-redsun-50 to-amber-50 !border-redsun-100">
+        <span class="inline-block px-3 py-1 rounded-full ${opts.draft ? 'bg-amber-100 text-amber-800' : 'bg-redsun-100 text-redsun-800'} text-[11px] font-bold uppercase tracking-wider mb-3">${opts.badge || 'Tài liệu chính thức • Lưu hành nội bộ'}</span>
+        <h1 class="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 tracking-tight mb-3">${esc(c.title)}</h1>
+        <div class="sec">${c.intro || ''}</div>
+        <p class="text-sm text-slate-500 mt-2">Hiệu lực: <span data-cfg="hieuLuc"></span>. Đầu mối giải đáp: <span data-cfg="dauMoi"></span>.${opts.meta ? ' ' + opts.meta : ''}</p></div>`
+      + c.sections.map((x, i) => `<section id="pol-${esc(x.id)}" class="card" data-title="${esc(x.title)}"><h2><span class="num">${i + 1}</span>${esc(x.title)}</h2><div class="sec">${x.html}</div></section>`).join('');
+  }
+  function paintPolicy(root, c, opts) {
+    root.innerHTML = (opts.bar || '') + policyHtml(c, opts);
+    const sink = document.getElementById('doc-sink'); if (sink) sink.remove();
+    POLICY_CFG = { ...(c.vars || {}) };
+    fillPolicyBlocks(root);
+    try { renderDoc(); } catch (e) { console.error(e); }
+    // Mục lục trỏ đúng mục của tài liệu đang xem
+    document.getElementById('toc').innerHTML = c.sections.map((x, i) => `<li><button data-toc="pol-${esc(x.id)}" class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-redsun-50 text-slate-600 hover:text-redsun-800"><b class="text-redsun-700 mr-1.5">${i + 1}.</b>${esc(x.title)}</button></li>`).join('');
+    document.querySelectorAll('[data-toc]').forEach((b) => b.onclick = () => document.getElementById(b.dataset.toc).scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }
+  // Khi soạn thảo: ẩn cột mục lục, trình soạn dùng toàn bộ bề ngang
+  const policyWide = (on) => {
+    const aside = document.querySelector('#tab-policy > aside'), root = document.getElementById('policy-root');
+    if (aside) aside.classList.toggle('lg:hidden', on);
+    root.classList.toggle('lg:col-span-9', !on); root.classList.toggle('lg:col-span-12', on);
+  };
+  async function renderPolicy(force) {
+    const root = document.getElementById('policy-root');
+    if (PO.mode === 'edit') return;                       // đang soạn: không vẽ lại
+    policyWide(false);
+    if (!PO.list || force) {
+      try { const d = await api('/api/policies'); PO.list = d.policies; PO.vars = d.vars; PO.can = d.can; }
+      catch (e) { root.innerHTML = errorCard(e.message); return; }
+    }
+    if (!PO.list.length) { root.innerHTML = card('<div class="p-6 text-sm text-slate-500">Chưa có quy chế nào được ban hành.</div>'); return; }
+    if (!PO.sel || !PO.list.find((x) => x.id === PO.sel)) PO.sel = (PO.list.find((x) => x.current) || PO.list[0]).id;
+    const pol = PO.list.find((x) => x.id === PO.sel), showDraft = PO.mode === 'draft' && pol.draft && pol.draft.content;
+    const ver = showDraft ? pol.draft : pol.current;
+    const pick = PO.list.length > 1 ? `<select id="po-pick" class="${inputCls} sm:w-80">${PO.list.map((x) => `<option value="${x.id}" ${x.id === PO.sel ? 'selected' : ''}>${esc(x.name)}${x.current ? '' : ' (chưa ban hành)'}</option>`).join('')}</select>` : '';
+    const tools = polCan('edit') ? `<div class="flex flex-wrap gap-2">
+        ${pol.draft && pol.draft.content ? `<button id="po-toggle" class="${BTN_S}">${showDraft ? '← Xem bản đang ban hành' : '👁 Xem bản nháp'}</button>` : ''}
+        <button id="po-edit" class="${BTN_P}">✎ ${pol.draft && pol.draft.content ? 'Soạn tiếp bản nháp' : 'Soạn bản mới'}</button>
+        <button id="po-hist" class="${BTN_S}">🕘 Lịch sử phiên bản</button>${polCan('add') ? `<button id="po-new" class="${BTN_S}">＋ Quy chế mới</button>` : ''}</div>` : '';
+    const draftNote = polCan('edit') && pol.draft && pol.draft.content && !showDraft
+      ? `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Có <b>bản nháp</b> chưa ban hành${pol.draft.note ? ': ' + esc(pol.draft.note) : ''} (sửa lần cuối ${fmtDT2(pol.draft.updated_at)}${pol.draft.updated_by_name ? ' bởi ' + esc(pol.draft.updated_by_name) : ''}).</div>` : '';
+    const bar = (pick || tools) ? `<div class="no-print flex flex-col sm:flex-row gap-2 justify-between">${pick || '<span></span>'}${tools}</div>${draftNote}` : draftNote;
+    if (!ver) { root.innerHTML = bar + card('<div class="p-6 text-sm text-slate-500">Quy chế này chưa có bản ban hành. Bấm "Xem bản nháp" hoặc "Soạn tiếp bản nháp".</div>'); bindPolicyBar(pol); return; }
+    const meta = showDraft ? '' : `Phiên bản ${esc(ver.version || '')} • ban hành ${fmtDate(ver.published_at)}${ver.published_by_name ? ' bởi ' + esc(ver.published_by_name) : ''}.`;
+    paintPolicy(root, ver.content, { bar, draft: showDraft, badge: showDraft ? 'Bản nháp • chưa ban hành' : null, meta });
+    bindPolicyBar(pol);
+  }
+  function bindPolicyBar(pol) {
+    const x = (id) => document.getElementById(id);
+    if (x('po-pick')) x('po-pick').onchange = (e) => { PO.sel = e.target.value; PO.mode = 'view'; renderPolicy(); };
+    if (x('po-toggle')) x('po-toggle').onclick = () => { PO.mode = PO.mode === 'draft' ? 'view' : 'draft'; renderPolicy(); };
+    if (x('po-edit')) x('po-edit').onclick = () => policyEditor(pol);
+    if (x('po-hist')) x('po-hist').onclick = () => policyHistory(pol);
+    if (x('po-new')) x('po-new').onclick = async () => { const name = prompt('Tên quy chế mới (vd: Quy chế Lương, Thưởng & KPI – Phòng Kế toán):'); if (!name) return;
+      try { const r = await api('/api/policies', { method: 'POST', body: { name } }); PO.sel = r.id; await renderPolicy(true); const p2 = PO.list.find((y) => y.id === r.id); if (p2) policyEditor(p2); } catch (e) { alert(e.message); } };
+  }
+
+  /* ----- Lịch sử phiên bản: xem, khôi phục thành bản nháp ----- */
+  async function policyHistory(pol) {
+    openModal(`${modalHead('Lịch sử phiên bản', esc(pol.name))}<div id="ph-body" class="px-6 py-5">${loading}</div>`, false, true);
+    try {
+      const d = await api(`/api/policies/${pol.id}/versions`);
+      const cur = pol.current && pol.current.id;
+      document.getElementById('ph-body').innerHTML = `<div class="divide-y divide-slate-100 border border-slate-200 rounded-xl">${d.versions.map((v) => `<div class="px-4 py-3 flex flex-wrap items-center gap-3">
+          <span class="px-2 py-0.5 rounded-full text-[11px] font-bold ${v.status === 'draft' ? 'bg-amber-100 text-amber-800' : v.id === cur ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}">${v.status === 'draft' ? 'Bản nháp' : v.id === cur ? 'Đang ban hành' : 'Đã thay thế'}</span>
+          <div class="flex-grow min-w-0"><b class="text-sm">${v.status === 'draft' ? 'Nháp' : 'Phiên bản ' + esc(v.version || '')}</b> <span class="text-xs text-slate-500">${v.status === 'draft' ? 'sửa ' + fmtDT2(v.updated_at) + (v.updated_by_name ? ' • ' + esc(v.updated_by_name) : '') : 'ban hành ' + fmtDT2(v.published_at) + (v.published_by_name ? ' • ' + esc(v.published_by_name) : '')}</span>
+            ${v.note ? `<span class="block text-xs text-slate-600">${esc(v.note)}</span>` : ''}</div>
+          <span class="text-xs whitespace-nowrap"><button data-pv="${v.id}" class="font-bold text-slate-700 hover:underline mr-3">Xem</button>${v.status !== 'draft' ? `<button data-pr="${v.id}" class="font-bold text-redsun-700 hover:underline">Lấy làm bản nháp</button>` : ''}</span></div>`).join('')}</div>
+        <p class="text-[11px] text-slate-500 mt-2">"Lấy làm bản nháp" sẽ thay bản nháp hiện có (nếu có) bằng nội dung phiên bản đó để sửa tiếp và ban hành lại.</p>`;
+      document.querySelectorAll('[data-pv]').forEach((b) => b.onclick = () => {
+        const v = d.versions.find((y) => y.id === +b.dataset.pv);
+        openModal(`${modalHead(v.status === 'draft' ? 'Bản nháp' : 'Phiên bản ' + esc(v.version || ''), esc(pol.name))}<div class="px-6 py-5 doc space-y-4" id="pv-root"></div>
+          <div class="px-6 pb-5 flex justify-end"><button id="pv-back" class="${BTN_S}">← Quay lại lịch sử</button></div>`, false, true);
+        const r = document.getElementById('pv-root'); r.innerHTML = policyHtml(v.content, { draft: v.status === 'draft' }); POLICY_CFG = { ...(v.content.vars || {}) }; fillPolicyBlocks(r);
+        // Bảng số liệu trong bản xem lại dùng id riêng → điền bằng cách sao chép từ tài liệu đang hiển thị
+        r.querySelectorAll('[data-cfg]').forEach((e) => { e.textContent = POLICY_CFG[e.dataset.cfg] ?? ''; });
+        r.querySelectorAll('.blk').forEach((e) => { e.innerHTML = '<p class="muted">[Bảng số liệu tự động – hiển thị đầy đủ khi xem ở trang Quy chế]</p>'; });
+        document.getElementById('pv-back').onclick = () => policyHistory(pol);
+      });
+      document.querySelectorAll('[data-pr]').forEach((b) => b.onclick = async () => {
+        if (pol.draft && pol.draft.content && !confirm('Bản nháp hiện có sẽ bị thay thế. Tiếp tục?')) return;
+        try { await api(`/api/policies/${pol.id}/restore`, { method: 'POST', body: { version_id: +b.dataset.pr } }); closeModal(); PO.mode = 'draft'; await renderPolicy(true); } catch (e) { alert(e.message); }
+      });
+    } catch (e) { document.getElementById('ph-body').innerHTML = errorCard(e.message); }
+  }
+
+  /* ----- Trình soạn thảo ----- */
+  function policyEditor(pol) {
+    const root = document.getElementById('policy-root');
+    const base = (pol.draft && pol.draft.content) || (pol.current && pol.current.content);
+    const D = JSON.parse(JSON.stringify(base));
+    D.vars = { ...Object.fromEntries(Object.entries(PO.vars).map(([k, v]) => [k, v.def])), ...(D.vars || {}) };
+    let note = (pol.draft && pol.draft.note) || '';
+    let cur = 0, view = 'edit';
+    PO.mode = 'edit'; PO.dirty = false; policyWide(true);
+    const AUTO_VARS = { nguongQLpct: 'Ngưỡng thưởng quản lý (theo công thức lương)' };       // tham số tự lấy từ công thức
+    const BL = (k) => (POLICY_BLOCKS[k] || {}).label || k, VL = (k) => (PO.vars[k] || {}).label || AUTO_VARS[k] || k;
+    // Lưu trữ ↔ trình soạn: khối và tham số hiển thị thành "nhãn" không sửa được
+    const toEditor = (html) => html.replace(/<div data-block="([a-z0-9_]+)"><\/div>/g, (m, k) => `<div data-block="${k}" contenteditable="false" class="chip-block">📊 ${esc(BL(k))} (tự động)</div>`)
+      .replace(/<span data-cfg="([a-zA-Z0-9_]+)"><\/span>/g, (m, k) => `<span data-cfg="${k}" contenteditable="false" class="chip-cfg">${esc(VL(k))}</span>`);
+    const fromEditor = (el) => { const c = el.cloneNode(true); c.querySelectorAll('[data-block],[data-cfg]').forEach((e) => { e.innerHTML = ''; e.removeAttribute('class'); e.removeAttribute('contenteditable'); }); return c.innerHTML; };
+    const syncCur = () => {
+      const a = document.getElementById('pe-area'); if (a && view === 'edit') { if (cur === -1) D.intro = fromEditor(a); else D.sections[cur].html = fromEditor(a); }
+      const t = document.getElementById('pe-stitle'); if (t && cur >= 0) D.sections[cur].title = t.value;
+      const tt = document.getElementById('pe-title'); if (tt) D.title = tt.value;
+      const n = document.getElementById('pe-note'); if (n) note = n.value;
+      document.querySelectorAll('[data-var]').forEach((i) => { D.vars[i.dataset.var] = i.value; });
+    };
+    const mark = () => { PO.dirty = true; const s2 = document.getElementById('pe-state'); if (s2) s2.textContent = 'Chưa lưu'; };
+    const tb = (cmd, label, title) => `<button type="button" data-cmd="${cmd}" class="pe-tool" title="${title || label}">${label}</button>`;
+    const draw = () => {
+      const secList = `<button data-sec="-1" class="w-full text-left px-3 py-2 rounded-lg text-sm ${cur === -1 ? 'bg-redsun-50 text-redsun-800 font-bold' : 'hover:bg-slate-50'}">Mở đầu tài liệu</button>`
+        + D.sections.map((x, i) => `<div class="flex items-center gap-1 ${cur === i ? 'bg-redsun-50 rounded-lg' : ''}"><button data-sec="${i}" class="flex-grow text-left px-3 py-2 rounded-lg text-sm truncate ${cur === i ? 'text-redsun-800 font-bold' : 'hover:bg-slate-50'}"><b class="text-redsun-700 mr-1">${i + 1}.</b>${esc(x.title)}</button>
+          <button data-up="${i}" class="text-slate-400 hover:text-slate-800 px-1" title="Lên">↑</button><button data-down="${i}" class="text-slate-400 hover:text-slate-800 px-1" title="Xuống">↓</button></div>`).join('');
+      const blockOpts = Object.entries(POLICY_BLOCKS).map(([k, b]) => `<option value="${k}">${esc(b.label)}</option>`).join('');
+      const varOpts = Object.entries(PO.vars).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('') + Object.entries(AUTO_VARS).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('');
+      const editorPane = view === 'vars' ? `<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">${Object.entries(PO.vars).map(([k, v]) => field(esc(v.label), `<input data-var="${k}" value="${esc(D.vars[k] ?? '')}" class="${inputCls}">`)).join('')}</div>
+            <p class="text-[11px] text-slate-500 mt-2">Tham số hiện trong văn bản ở các chỗ đánh dấu màu vàng. Ngưỡng thưởng quản lý và các bảng số liệu lấy từ <b>Công thức lương</b> (tab Nhân viên → 🧮 Công thức lương).</p>`
+        : view === 'preview' ? '<div id="pe-preview" class="doc space-y-6"></div>'
+        : `<div class="flex flex-wrap items-end gap-2 mb-2">${cur >= 0 ? `<div class="flex-grow">${field('Tên mục', `<input id="pe-stitle" maxlength="150" value="${esc(D.sections[cur].title)}" class="${inputCls}">`)}</div>
+              <button id="pe-del" class="text-xs text-redsun-700 hover:underline pb-2">Xóa mục này</button>` : `<div class="flex-grow">${field('Tiêu đề tài liệu', `<input id="pe-title" maxlength="200" value="${esc(D.title)}" class="${inputCls}">`)}</div>`}</div>
+          <div class="flex flex-wrap gap-1 mb-2 sticky top-28 z-10 bg-white py-1">
+            ${tb('bold', '<b>B</b>', 'Đậm')}${tb('italic', '<i>I</i>', 'Nghiêng')}${tb('underline', '<u>U</u>', 'Gạch chân')}
+            ${tb('h3', 'Tiêu đề nhỏ')}${tb('p', 'Đoạn văn')}${tb('ul', '• Danh sách')}${tb('ol', '1. Danh sách')}
+            ${tb('note', '💡 Ghi chú')}${tb('tip', '✅ Mẹo/ví dụ')}${tb('warn', '⚠ Cảnh báo')}${tb('formula', 'Công thức')}
+            ${tb('link', '🔗 Liên kết')}${tb('table', '▦ Bảng')}${tb('faq', '❓ Hỏi đáp')}${tb('clear', 'Xóa định dạng')}
+            <select id="pe-block" class="pe-tool"><option value="">📊 Chèn bảng số liệu tự động…</option>${blockOpts}</select>
+            <select id="pe-var" class="pe-tool"><option value="">🔤 Chèn tham số…</option>${varOpts}</select></div>
+          <div id="pe-area" class="pe-area doc" contenteditable="true">${toEditor(cur === -1 ? (D.intro || '') : D.sections[cur].html)}</div>
+          <p class="text-[11px] text-slate-500 mt-2">Dán văn bản sẽ giữ chữ, bỏ định dạng lạ. Ô xám là bảng số liệu tự động, ô vàng là tham số: chọn rồi bấm Delete để xóa, dùng 2 nút cuối thanh công cụ để chèn.</p>`;
+      root.innerHTML = `<div class="card !p-4 no-print flex flex-col lg:flex-row lg:items-center gap-3 justify-between sticky top-20 z-20">
+          <div><b class="text-slate-900">Soạn thảo: ${esc(pol.name)}</b><span class="block text-xs text-slate-500">Bản nháp • <span id="pe-state">${PO.dirty ? 'Chưa lưu' : (pol.draft && pol.draft.updated_at ? 'Đã lưu ' + fmtDT2(pol.draft.updated_at) : 'Chưa lưu')}</span></span></div>
+          <div class="flex flex-wrap gap-2">
+            ${[['edit', '✎ Nội dung'], ['vars', '🔤 Tham số'], ['preview', '👁 Xem trước']].map(([k, l]) => `<button data-view="${k}" class="${view === k ? BTN_P : BTN_S}">${l}</button>`).join('')}
+            <button id="pe-save" class="${BTN_S}">💾 Lưu nháp</button>${polCan('add') ? `<button id="pe-pub" class="${BTN_P}">Ban hành…</button>` : ''}
+            ${polCan('delete') && pol.draft && pol.draft.content ? `<button id="pe-drop" class="${BTN_S}">Hủy nháp</button>` : ''}<button id="pe-close" class="${BTN_S}">Đóng</button></div></div>
+        ${errBox('pe-err')}
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+          <div class="lg:col-span-3 card !p-3 space-y-1">${secList}<button id="pe-add" class="mt-2 text-xs font-bold text-redsun-700 hover:underline px-3">＋ Thêm mục</button>
+            <div class="pt-3 px-3">${field('Ghi chú phiên bản', `<input id="pe-note" maxlength="300" value="${esc(note)}" placeholder="VD: Cập nhật tỷ lệ thưởng 2027" class="${inputCls}">`)}</div></div>
+          <div class="lg:col-span-9 card !p-4">${editorPane}</div></div>`;
+      bind();
+      if (view === 'preview') {
+        const pr = document.getElementById('pe-preview'); pr.innerHTML = policyHtml(D, { draft: true, badge: 'Xem trước bản nháp' });
+        const sink = document.getElementById('doc-sink'); if (sink) sink.remove();
+        POLICY_CFG = { ...D.vars }; fillPolicyBlocks(pr); try { renderDoc(); } catch (e) { console.error(e); }
+      }
+    };
+    // Chèn HTML tại vị trí con trỏ (tự làm để giữ thuộc tính data-block / data-cfg; nhớ vị trí khi bấm sang ô chọn)
+    let lastRange = null;
+    const keepRange = () => { const sel = window.getSelection(), a = document.getElementById('pe-area'); if (a && sel.rangeCount && a.contains(sel.getRangeAt(0).commonAncestorContainer)) lastRange = sel.getRangeAt(0).cloneRange(); };
+    const insertAtCaret = (html) => {
+      const a = document.getElementById('pe-area'), sel = window.getSelection();
+      let r = lastRange;
+      if (sel.rangeCount && a.contains(sel.getRangeAt(0).commonAncestorContainer)) r = sel.getRangeAt(0);
+      if (!r) { r = document.createRange(); r.selectNodeContents(a); r.collapse(false); }
+      r.deleteContents();
+      const t = document.createElement('template'); t.innerHTML = html;
+      const last = t.content.lastChild; r.insertNode(t.content);
+      if (last) { const nr = document.createRange(); nr.setStartAfter(last); nr.collapse(true); sel.removeAllRanges(); sel.addRange(nr); lastRange = nr.cloneRange(); }
+      a.focus(); mark();
+    };
+    const exec = (cmd) => {
+      const a = document.getElementById('pe-area'); a.focus();
+      if (lastRange && !(window.getSelection().rangeCount && a.contains(window.getSelection().getRangeAt(0).commonAncestorContainer))) { const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(lastRange); }
+      const wrap = (cls) => { const sel = window.getSelection(); const txt = sel && sel.toString() ? esc(sel.toString()) : 'Nội dung…'; insertAtCaret(`<div class="${cls}">${txt}</div><p><br></p>`); };
+      if (['bold', 'italic', 'underline'].includes(cmd)) document.execCommand(cmd);
+      else if (cmd === 'h3') document.execCommand('formatBlock', false, 'h3');
+      else if (cmd === 'p') document.execCommand('formatBlock', false, 'p');
+      else if (cmd === 'ul') document.execCommand('insertUnorderedList');
+      else if (cmd === 'ol') document.execCommand('insertOrderedList');
+      else if (['note', 'tip', 'warn', 'formula'].includes(cmd)) wrap(cmd);
+      else if (cmd === 'link') { const u = prompt('Địa chỉ liên kết (https://…):', 'https://'); if (u && /^(https?:|mailto:|tel:)/i.test(u)) document.execCommand('createLink', false, u); }
+      else if (cmd === 'table') insertAtCaret('<table><thead><tr><th>Cột 1</th><th>Cột 2</th></tr></thead><tbody><tr><td>…</td><td>…</td></tr><tr><td>…</td><td>…</td></tr></tbody></table><p><br></p>');
+      else if (cmd === 'faq') insertAtCaret('<details><summary>Câu hỏi?</summary><p>Câu trả lời.</p></details><p><br></p>');
+      else if (cmd === 'clear') document.execCommand('removeFormat');
+      mark();
+    };
+    const bind = () => {
+      const x = (id) => document.getElementById(id);
+      document.querySelectorAll('[data-view]').forEach((b) => b.onclick = () => { syncCur(); view = b.dataset.view; draw(); });
+      document.querySelectorAll('[data-sec]').forEach((b) => b.onclick = () => { syncCur(); cur = +b.dataset.sec; view = 'edit'; draw(); });
+      document.querySelectorAll('[data-up],[data-down]').forEach((b) => b.onclick = () => {
+        syncCur(); const i = +(b.dataset.up ?? b.dataset.down), j = b.dataset.up != null ? i - 1 : i + 1;
+        if (j < 0 || j >= D.sections.length) return; [D.sections[i], D.sections[j]] = [D.sections[j], D.sections[i]]; if (cur === i) cur = j; else if (cur === j) cur = i; mark(); draw(); });
+      x('pe-add').onclick = () => { syncCur(); D.sections.push({ id: 'm' + Date.now().toString(36), title: 'Mục mới', html: '<p>Nội dung…</p>' }); cur = D.sections.length - 1; view = 'edit'; mark(); draw(); };
+      if (x('pe-del')) x('pe-del').onclick = () => { if (D.sections.length < 2) return alert('Quy chế cần ít nhất 1 mục.'); if (!confirm(`Xóa mục "${D.sections[cur].title}"?`)) return; D.sections.splice(cur, 1); cur = Math.max(0, cur - 1); mark(); draw(); };
+      document.querySelectorAll('[data-cmd]').forEach((b) => { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => exec(b.dataset.cmd); });
+      const area = x('pe-area');
+      if (area) {
+        area.oninput = () => { mark(); keepRange(); };
+        ['keyup', 'mouseup', 'focus'].forEach((ev) => area.addEventListener(ev, keepRange));
+        area.onpaste = (e) => { e.preventDefault(); const t = (e.clipboardData || window.clipboardData).getData('text/plain'); document.execCommand('insertHTML', false, t.split(/\n{2,}/).map((pp) => `<p>${esc(pp).replace(/\n/g, '<br>')}</p>`).join('')); };
+      }
+      ['pe-stitle', 'pe-title', 'pe-note'].forEach((id) => { if (x(id)) x(id).oninput = mark; });
+      document.querySelectorAll('[data-var]').forEach((i) => i.oninput = mark);
+      if (x('pe-block')) x('pe-block').onchange = (e) => { const k = e.target.value; if (!k) return; insertAtCaret(`<div data-block="${k}" contenteditable="false" class="chip-block">📊 ${esc(BL(k))} (tự động)</div><p><br></p>`); e.target.value = ''; };
+      if (x('pe-var')) x('pe-var').onchange = (e) => { const k = e.target.value; if (!k) return; insertAtCaret(`<span data-cfg="${k}" contenteditable="false" class="chip-cfg">${esc(VL(k))}</span>&nbsp;`); e.target.value = ''; };
+      x('pe-save').onclick = () => save();
+      if (x('pe-pub')) x('pe-pub').onclick = () => publish();
+      if (x('pe-drop')) x('pe-drop').onclick = async () => { if (!confirm('Hủy bản nháp? Nội dung nháp sẽ bị xóa, bản đang ban hành giữ nguyên.')) return;
+        try { await api(`/api/policies/${pol.id}/draft`, { method: 'DELETE' }); PO.mode = 'view'; PO.dirty = false; await renderPolicy(true); } catch (e2) { showErr('pe-err', e2.message); } };
+      x('pe-close').onclick = async () => { syncCur(); if (PO.dirty && !confirm('Bản nháp có thay đổi chưa lưu. Đóng mà không lưu?')) return; PO.mode = 'view'; PO.dirty = false; await renderPolicy(true); };
+    };
+    const save = async (quiet) => {
+      syncCur();
+      try {
+        const r = await api(`/api/policies/${pol.id}/draft`, { method: 'PUT', body: { content: D, note } });
+        PO.dirty = false; pol.draft = { ...(pol.draft || {}), content: D, note, updated_at: r.saved_at };
+        const s2 = document.getElementById('pe-state'); if (s2) s2.textContent = 'Đã lưu ' + fmtDT2(r.saved_at);
+        return true;
+      } catch (e) { showErr('pe-err', e.message); if (!quiet) window.scrollTo(0, 0); return false; }
+    };
+    const publish = async () => {
+      if (!(await save(true))) return;
+      const curV = pol.current && pol.current.version, m = String(curV || '0.9').match(/^(\d+)\.(\d+)$/), sug = m ? `${m[1]}.${+m[2] + 1}` : '1.0';
+      const v = prompt(`Ban hành bản nháp thành phiên bản chính thức.\nMọi nhân viên sẽ thấy nội dung mới ngay.\n\nSố phiên bản:`, sug);
+      if (!v) return;
+      try { await api(`/api/policies/${pol.id}/publish`, { method: 'POST', body: { version: v, note } }); PO.mode = 'view'; PO.dirty = false; await renderPolicy(true); window.scrollTo(0, 0); }
+      catch (e) { showErr('pe-err', e.message); }
+    };
+    window.onbeforeunload = () => (PO.mode === 'edit' && PO.dirty ? 'Bản nháp chưa lưu' : undefined);
+    draw();
+  }
 
   /* =========================================================================
      TRANG: PHÂN QUYỀN – nhóm quyền = ma trận Xem/Thêm/Sửa/Xóa theo mục + phạm vi dữ liệu

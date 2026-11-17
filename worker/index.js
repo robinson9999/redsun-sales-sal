@@ -9,6 +9,8 @@ import { WorkerMailer } from 'worker-mailer';
 import { getTemplate, sanitizeAnswers, validateAnswers, renderReport, renderText, surveyTitle } from '../public/survey-lib.js';
 import { PROPOSALS, getProposal } from '../public/proposal/catalog.js';
 import { ACTIONS, MODULES, BUILTIN_GROUPS, cleanPerms, permsMeta } from './perms.js';
+import { POLICY_VARS, cleanContent } from './policy.js';
+import { SEED_CURRENT, SEED_PROPOSED } from './policy-seed.js';
 import { SALES_TITLES, BUILTIN_FORMULA, BUILTIN_PARAMS, TEMPLATES, NONE_FORMULA, cleanConfig, cleanParams, defaultParams, templatesPublic } from './formulas.js';
 
 const PBKDF2_ITER = 50000;               // Workers giới hạn tối đa 100.000; 50.000 để vừa CPU gói miễn phí
@@ -275,6 +277,22 @@ async function ensureSchema(env) {
       active INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL)`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS title_names (id TEXT PRIMARY KEY, name TEXT, en TEXT)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS policies (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sort INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS policy_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      policy_id TEXT NOT NULL REFERENCES policies(id),
+      status TEXT NOT NULL,
+      version TEXT,
+      content TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_by INTEGER, created_at INTEGER NOT NULL,
+      updated_by INTEGER, updated_at INTEGER NOT NULL,
+      published_by INTEGER, published_at INTEGER)`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_polver ON policy_versions(policy_id, status, published_at)`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS perm_groups (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -311,6 +329,18 @@ async function ensureSchema(env) {
   // 3 nhóm quyền gốc (giữ đúng quyền admin / manager / staff trước đây)
   await env.DB.batch(Object.entries(BUILTIN_GROUPS).map(([id, g]) => env.DB.prepare(`INSERT OR IGNORE INTO perm_groups (id,name,description,scope,perms,sort,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?7)`)
     .bind(id, g.name, g.description, g.scope, JSON.stringify(cleanPerms(g.perms)), g.sort, now())));
+  // Quy chế khối KD: bản hiện hành (Phiên bản 1.0) + bản nháp viết lại dễ hiểu chờ duyệt
+  const pc = await env.DB.prepare('SELECT COUNT(*) AS n FROM policies').first();
+  if (!pc.n) {
+    const t = now();
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO policies (id,name,sort,created_at) VALUES (?1,?2,0,?3)').bind('quy-che-kd', 'Quy chế Lương, Thưởng & KPI – Khối Kinh doanh', t),
+      env.DB.prepare(`INSERT INTO policy_versions (policy_id,status,version,content,note,created_at,updated_at,published_at) VALUES ('quy-che-kd','published','1.0',?1,?2,?3,?3,?3)`)
+        .bind(JSON.stringify(cleanContent(SEED_CURRENT)), 'Bản hiện hành (chuyển từ tài liệu gốc)', t),
+      env.DB.prepare(`INSERT INTO policy_versions (policy_id,status,content,note,created_at,updated_at) VALUES ('quy-che-kd','draft',?1,?2,?3,?3)`)
+        .bind(JSON.stringify(cleanContent(SEED_PROPOSED)), 'Đề xuất viết lại dễ hiểu cho nhân viên – chờ duyệt', t + 1)
+    ]);
+  }
   // Công thức gốc của khối Kinh doanh (Quy chế hiện hành)
   await env.DB.prepare(`INSERT OR IGNORE INTO formulas (id,name,template,description,config,builtin,created_at,updated_at) VALUES (?1,?2,'sales_3p',?3,?4,1,?5,?5)`)
     .bind(BUILTIN_FORMULA, 'Lương 3P – Khối Kinh doanh', 'Quy chế lương thưởng khối Kinh doanh hiện hành.', JSON.stringify(TEMPLATES.sales_3p.config), now()).run();
@@ -1001,6 +1031,92 @@ async function api(req, env, url, me, ctx) {
     await env.DB.prepare('UPDATE perm_groups SET name=?1, description=?2, scope=?3, perms=?4, updated_at=?5 WHERE id=?6')
       .bind(name, body.description === undefined ? g.description : String(body.description || '').trim().slice(0, 300), scope, JSON.stringify(perms), now(), g.id).run();
     return json({ ok: true });
+  }
+
+  /* ----- Quy chế: đọc bản ban hành; soạn nháp, ban hành, lịch sử phiên bản ----- */
+  if (p === '/api/policies' || p.startsWith('/api/policies/')) {
+    const verView = (v) => v && { id: v.id, status: v.status, version: v.version, note: v.note, content: parseJ(v.content, null),
+      updated_at: v.updated_at, updated_by_name: v.ub || null, published_at: v.published_at, published_by_name: v.pb || null };
+    const VER_SQL = `SELECT v.*, ub.name AS ub, pb.name AS pb FROM policy_versions v LEFT JOIN users ub ON ub.id=v.updated_by LEFT JOIN users pb ON pb.id=v.published_by`;
+    const getPol = async (id) => env.DB.prepare('SELECT * FROM policies WHERE id=?1').bind(id).first();
+    const current = async (id) => env.DB.prepare(`${VER_SQL} WHERE v.policy_id=?1 AND v.status='published' ORDER BY v.published_at DESC, v.id DESC LIMIT 1`).bind(id).first();
+    const draftOf = async (id) => env.DB.prepare(`${VER_SQL} WHERE v.policy_id=?1 AND v.status='draft' LIMIT 1`).bind(id).first();
+    if (p === '/api/policies' && method === 'GET') {
+      if (!can(me, 'policy')) return deny('policy', 'view');
+      const pols = (await env.DB.prepare('SELECT * FROM policies ORDER BY sort, created_at').all()).results;
+      const out = [];
+      for (const x of pols) {
+        const cur = await current(x.id), dr = await draftOf(x.id);
+        if (!cur && !can(me, 'policy', 'edit')) continue;              // quy chế chưa ban hành: chỉ người soạn thấy
+        out.push({ id: x.id, name: x.name, current: verView(cur), draft: can(me, 'policy', 'edit') ? verView(dr) : (dr ? { exists: true } : null) });
+      }
+      return json({ policies: out, vars: POLICY_VARS, can: { add: can(me, 'policy', 'add'), edit: can(me, 'policy', 'edit'), delete: can(me, 'policy', 'delete') } });
+    }
+    if (p === '/api/policies' && method === 'POST') {
+      if (!can(me, 'policy', 'add')) return deny('policy', 'add');
+      const name = clip(body.name, 150);
+      if (!name) return bad('Chưa nhập tên quy chế.');
+      let id = slugId(name) || 'quy-che'; const base = id; let i = 2;
+      while (await getPol(id)) id = `${base}-${i++}`;
+      const t = now(), content = cleanContent({ title: name, intro: '<p>Mục đích và phạm vi áp dụng của quy chế.</p>', sections: [{ id: 's1', title: 'Phạm vi áp dụng', html: '<p>Nội dung…</p>' }] });
+      await env.DB.batch([
+        env.DB.prepare('INSERT INTO policies (id,name,sort,created_at) VALUES (?1,?2,?3,?4)').bind(id, name, t, t),
+        env.DB.prepare(`INSERT INTO policy_versions (policy_id,status,content,note,created_by,created_at,updated_by,updated_at) VALUES (?1,'draft',?2,'',?3,?4,?3,?4)`).bind(id, JSON.stringify(content), me.id, t)]);
+      return json({ ok: true, id });
+    }
+    const pm2 = p.match(/^\/api\/policies\/([a-z0-9-]+)(?:\/(draft|publish|versions|restore))?$/);
+    if (!pm2) return bad('Không tìm thấy.', 404);
+    const pol = await getPol(pm2[1]);
+    if (!pol) return bad('Không tìm thấy quy chế.', 404);
+    const sub = pm2[2];
+    if (!sub && method === 'PUT') {
+      if (!can(me, 'policy', 'edit')) return deny('policy', 'edit');
+      const name = clip(body.name, 150); if (!name) return bad('Chưa nhập tên quy chế.');
+      await env.DB.prepare('UPDATE policies SET name=?1 WHERE id=?2').bind(name, pol.id).run();
+      return json({ ok: true });
+    }
+    if (sub === 'versions' && method === 'GET') {
+      if (!can(me, 'policy', 'edit')) return deny('policy', 'edit');
+      const r = await env.DB.prepare(`${VER_SQL} WHERE v.policy_id=?1 ORDER BY CASE v.status WHEN 'draft' THEN 0 ELSE 1 END, v.published_at DESC, v.id DESC LIMIT 50`).bind(pol.id).all();
+      return json({ versions: r.results.map(verView) });
+    }
+    if (sub === 'draft' && method === 'PUT') {
+      if (!can(me, 'policy', 'edit')) return deny('policy', 'edit');
+      let content;
+      try { content = cleanContent(body.content); } catch (e) { return bad(e.message); }
+      const dr = await draftOf(pol.id), t = now(), note = clip(body.note, 300);
+      if (dr) await env.DB.prepare('UPDATE policy_versions SET content=?1, note=?2, updated_by=?3, updated_at=?4 WHERE id=?5').bind(JSON.stringify(content), note, me.id, t, dr.id).run();
+      else await env.DB.prepare(`INSERT INTO policy_versions (policy_id,status,content,note,created_by,created_at,updated_by,updated_at) VALUES (?1,'draft',?2,?3,?4,?5,?4,?5)`).bind(pol.id, JSON.stringify(content), note, me.id, t).run();
+      return json({ ok: true, saved_at: t });
+    }
+    if (sub === 'draft' && method === 'DELETE') {
+      if (!can(me, 'policy', 'delete')) return deny('policy', 'delete');
+      await env.DB.prepare(`DELETE FROM policy_versions WHERE policy_id=?1 AND status='draft'`).bind(pol.id).run();
+      return json({ ok: true });
+    }
+    if (sub === 'restore' && method === 'POST') {             // lấy một bản cũ làm bản nháp để sửa tiếp
+      if (!can(me, 'policy', 'edit')) return deny('policy', 'edit');
+      const v = await env.DB.prepare('SELECT * FROM policy_versions WHERE id=?1 AND policy_id=?2').bind(+body.version_id, pol.id).first();
+      if (!v) return bad('Không tìm thấy phiên bản.', 404);
+      const t = now();
+      await env.DB.batch([env.DB.prepare(`DELETE FROM policy_versions WHERE policy_id=?1 AND status='draft'`).bind(pol.id),
+        env.DB.prepare(`INSERT INTO policy_versions (policy_id,status,content,note,created_by,created_at,updated_by,updated_at) VALUES (?1,'draft',?2,?3,?4,?5,?4,?5)`)
+          .bind(pol.id, v.content, `Khôi phục từ phiên bản ${v.version || '#' + v.id}`, me.id, t)]);
+      return json({ ok: true });
+    }
+    if (sub === 'publish' && method === 'POST') {
+      if (!can(me, 'policy', 'add')) return deny('policy', 'add');
+      const dr = await draftOf(pol.id);
+      if (!dr) return bad('Chưa có bản nháp để ban hành.');
+      const cur = await current(pol.id);
+      let version = clip(body.version, 20);
+      if (!version) { const m2 = String(cur && cur.version || '0.9').match(/^(\d+)\.(\d+)$/); version = m2 ? `${m2[1]}.${+m2[2] + 1}` : '1.0'; }
+      const t = now();
+      await env.DB.prepare(`UPDATE policy_versions SET status='published', version=?1, note=?2, published_by=?3, published_at=?4 WHERE id=?5`)
+        .bind(version, clip(body.note, 300) || dr.note, me.id, t, dr.id).run();
+      return json({ ok: true, version });
+    }
+    return bad('Không tìm thấy.', 404);
   }
 
   /* ----- Nhân viên ----- */

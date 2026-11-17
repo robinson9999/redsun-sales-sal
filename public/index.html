@@ -31,8 +31,35 @@
     body{background:#fff!important}
     header{position:static!important}
     .doc .card{box-shadow:none!important;break-inside:avoid}
+
     .print-only{display:block!important}
   }
+.doc .boxes{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.75rem;margin:.75rem 0}
+.doc .box{padding:1rem;border-radius:.75rem;background:#f8fafc;border:1px solid #e2e8f0}
+.doc .box.blue{background:#eff6ff;border-color:#dbeafe}.doc .box.green{background:#ecfdf5;border-color:#d1fae5}.doc .box.amber{background:#fffbeb;border-color:#fef3c7}
+.doc .box p{font-size:.875rem;margin-top:.25rem}
+.doc .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem;margin:.75rem 0;counter-reset:st}
+.doc .step{padding:1rem;border-radius:.75rem;background:#f8fafc;border:1px solid #e2e8f0;counter-increment:st}
+.doc .step>b::before{content:counter(st);display:inline-flex;width:1.4rem;height:1.4rem;border-radius:999px;background:#B91C1C;color:#fff;font-size:.75rem;align-items:center;justify-content:center;margin-right:.4rem}
+.doc .step p{font-size:.85rem;margin-top:.35rem}
+.doc .tip{background:#ecfdf5;border-left:4px solid #10b981;padding:.75rem 1rem;border-radius:.5rem;font-size:.875rem;color:#065f46;margin:.75rem 0}
+.doc .warn{background:#fef2f2;border-left:4px solid #dc2626;padding:.75rem 1rem;border-radius:.5rem;font-size:.875rem;color:#7f1d1d;margin:.75rem 0}
+.doc .note{margin:.75rem 0}.doc .formula{margin:.75rem 0}
+.doc .lead{font-size:1.05rem!important;color:#0f172a!important}
+.doc .muted{color:#64748b!important;font-size:.825rem!important}
+.doc p{margin:.4rem 0}
+.doc details{padding:.75rem 1rem;border-radius:.75rem;background:#f8fafc;border:1px solid #e2e8f0;margin:.5rem 0}
+.doc details summary{font-weight:600;cursor:pointer;color:#0f172a}
+.doc .sec table,.doc .blk table{border:1px solid #e2e8f0;border-radius:.75rem;overflow:hidden;margin:.5rem 0}
+.doc .blk{overflow-x:auto;margin:.75rem 0}
+.doc a{color:#B91C1C;text-decoration:underline}
+/* Trình soạn thảo quy chế */
+.pe-area{min-height:340px;outline:none;padding:1rem 1.1rem;border:1px solid #cbd5e1;border-radius:.75rem;background:#fff}
+.pe-area:focus{border-color:#dc2626;box-shadow:0 0 0 3px #fee2e2}
+.pe-area .chip-block{display:block;margin:.6rem 0;padding:.6rem .8rem;border:1px dashed #94a3b8;border-radius:.6rem;background:#f1f5f9;color:#334155;font-size:.8rem;font-weight:700;user-select:none}
+.pe-area .chip-cfg{display:inline-block;padding:0 .4rem;border-radius:.4rem;background:#fef3c7;color:#92400e;font-size:.8rem;font-weight:700;user-select:none}
+.pe-tool{padding:.3rem .55rem;border-radius:.45rem;font-size:.8rem;font-weight:600;color:#334155;background:#f1f5f9}
+.pe-tool:hover{background:#e2e8f0}
 </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen flex flex-col">
@@ -97,222 +124,8 @@
     </div>
   </aside>
 
-  <div class="lg:col-span-9 space-y-6">
-
-    <div class="card bg-gradient-to-br from-white via-redsun-50 to-amber-50 !border-redsun-100">
-      <span class="inline-block px-3 py-1 rounded-full bg-redsun-100 text-redsun-800 text-[11px] font-bold uppercase tracking-wider mb-3">Tài liệu chính thức • Lưu hành nội bộ</span>
-      <h1 class="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 tracking-tight mb-3">Quy Chế Lương, Thưởng & Giao KPI Khối Kinh Doanh</h1>
-      <p>Tài liệu này giải thích <b>bạn được trả lương như thế nào</b>, <b>KPI được giao ra sao</b>, và <b>cần điều kiện gì để nhận thưởng</b>. Mọi con số trong tài liệu và trong Bảng tính thu nhập dùng chung một bộ tham số, nên luôn thống nhất với nhau.</p>
-      <p class="text-sm text-slate-500 mt-2">Hiệu lực: <span data-cfg="hieuLuc"></span>. Đầu mối giải đáp: <span data-cfg="dauMoi"></span>.</p>
-    </div>
-
-    <!-- 1 -->
-    <section id="s1" class="card" data-title="Phạm vi áp dụng">
-      <h2><span class="num">1</span>Phạm vi & đối tượng áp dụng</h2>
-      <p>Áp dụng cho toàn bộ nhân sự Khối Kinh Doanh, gồm 7 chức danh:</p>
-      <ul>
-        <li><b>Cấp quản lý:</b> Giám đốc kinh doanh (CCO), Trưởng phòng kinh doanh (SM), Trưởng nhóm kinh doanh (Team Lead).</li>
-        <li><b>Cấp nhân viên:</b> Chuyên viên kinh doanh (Senior), Nhân viên kinh doanh (Sales Exec), Tập sự kinh doanh (Fresher).</li>
-        <li><b>Cộng tác viên (CTV):</b> làm việc theo hợp đồng cộng tác, hưởng hoa hồng thuần, áp dụng chính sách riêng tại Mục 8.</li>
-      </ul>
-      <p>Những nội dung không quy định trong tài liệu này thực hiện theo Hợp đồng lao động, Nội quy lao động và Quy chế tài chính của Công ty.</p>
-    </section>
-
-    <!-- 2 -->
-    <section id="s2" class="card" data-title="Cấu trúc thu nhập">
-      <h2><span class="num">2</span>Cấu trúc thu nhập hàng tháng</h2>
-      <p>Thu nhập của nhân sự chính thức gồm tối đa 4 khoản:</p>
-      <div class="formula my-3">N = S + B + C₁ + C₂</div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200"><b class="text-slate-900">S – Lương cơ bản</b><p class="!text-sm mt-1">Khoản cố định, trả theo ngày công thực tế. Chiếm 40% tổng lương thỏa thuận (W) với cấp quản lý và 50% với cấp nhân viên.</p></div>
-        <div class="p-4 rounded-xl bg-blue-50 border border-blue-100"><b class="text-slate-900">B – Lương hiệu suất</b><p class="!text-sm mt-1">Phần còn lại của W (60% hoặc 50%), gọi là H. Nhận theo % hoàn thành KPI, tối đa 100% H.</p></div>
-        <div class="p-4 rounded-xl bg-emerald-50 border border-emerald-100"><b class="text-slate-900">C₁ – Thưởng doanh số cá nhân</b><p class="!text-sm mt-1">Tính lũy tiến từng phần trên doanh số do chính bạn mang về. Áp dụng cho mọi chức danh.</p></div>
-        <div class="p-4 rounded-xl bg-amber-50 border border-amber-100"><b class="text-slate-900">C₂ – Thưởng quản lý</b><p class="!text-sm mt-1">Chỉ áp dụng cho CCO, SM, Team Lead. Tính theo kết quả của đơn vị, trả trên doanh số của đội.</p></div>
-      </div>
-      <p class="mt-3">Tổng lương thỏa thuận <b>W</b> được ghi trong hợp đồng/quyết định lương và luôn nằm trong khung lương của chức danh (Mục 3).</p>
-    </section>
-
-    <!-- 3 -->
-    <section id="s3" class="card" data-title="Khung lương & định mức KPI">
-      <h2><span class="num">3</span>Khung lương & định mức KPI theo chức danh</h2>
-      <p>Target cá nhân hàng tháng được xác định bằng công thức <b>K_cn = H × X</b>, trong đó H là lương hiệu suất tối đa và X là hệ số KPI của chức danh.</p>
-      <div class="overflow-x-auto mt-3 rounded-xl border border-slate-200">
-        <table>
-          <thead><tr><th>Chức danh</th><th>Khung W</th><th>CB - HS</th><th>Lương CB (S)</th><th>Lương HS (H)</th><th>Hệ số X</th><th>Target cá nhân (K_cn)</th></tr></thead>
-          <tbody id="range-tbody"></tbody>
-        </table>
-      </div>
-      <div class="note mt-3"><b>Lộ trình Tập sự (Fresher):</b> <span id="ramp-text"></span></div>
-    </section>
-
-    <!-- 4 -->
-    <section id="s4" class="card" data-title="Giao & nhận KPI/Target">
-      <h2><span class="num">4</span>Cách thức giao và nhận KPI/Target</h2>
-      <h3>4.1. Quy trình hàng tháng</h3>
-      <ol>
-        <li><b>Giao target:</b> chậm nhất ngày <span data-cfg="ngayGiaoTarget"></span> hàng tháng, quản lý trực tiếp giao target cá nhân (K_cn) cho từng nhân sự trên hệ thống CRM/HRM. Target bằng định mức tại Mục 3, tính theo W thực tế của từng người.</li>
-        <li><b>Xác nhận:</b> nhân sự xác nhận target trong vòng <span data-cfg="ngayXacNhan"></span> ngày làm việc. Quá thời hạn mà không có phản hồi thì target được coi là đã được chấp nhận.</li>
-        <li><b>Theo dõi:</b> doanh số được cập nhật trên CRM. Nhân sự và quản lý cùng theo dõi % hoàn thành trong tháng.</li>
-        <li><b>Chốt kết quả:</b> doanh số tính lương được chốt vào <span data-cfg="ngayChotDS"></span> (xem Mục 10).</li>
-      </ol>
-      <h3>4.2. Target của đội và của đơn vị (dành cho quản lý)</h3>
-      <ul>
-        <li><b>Target đội (K_đội)</b> bằng tổng target cá nhân của các thành viên trực thuộc × hệ số từ 1,0 đến 1,1, không gồm target cá nhân của quản lý. Với SM, đội gồm các nhóm trực thuộc; với CCO, đội gồm các phòng trực thuộc.</li>
-        <li><b>Target đơn vị</b> = target cá nhân của quản lý + target đội.</li>
-      </ul>
-      <h3>4.3. Trường hợp đặc biệt</h3>
-      <ul>
-        <li><b>Vào làm hoặc nghỉ việc giữa tháng:</b> target, lương cơ bản S và lương hiệu suất H được tính theo tỷ lệ ngày công thực tế / ngày công chuẩn của tháng.</li>
-        <li><b>Nghỉ phép năm, nghỉ lễ có hưởng lương:</b> không giảm target.</li>
-        <li><b>Nghỉ không lương hoặc nghỉ dài ngày được duyệt</b> (từ <span data-cfg="ngayNghiGiamTarget"></span> ngày làm việc trở lên trong tháng): target giảm theo số ngày nghỉ.</li>
-        <li><b>Thay đổi thành viên đội trong tháng:</b> target đội được điều chỉnh theo phần target đã tính theo ngày công của thành viên vào/ra.</li>
-        <li><b>Điều chỉnh target giữa kỳ</b> chỉ thực hiện khi có biến động khách quan (thay đổi sản phẩm, giá bán, địa bàn) và phải được Giám đốc kinh doanh phê duyệt bằng văn bản.</li>
-      </ul>
-    </section>
-
-    <!-- 5 -->
-    <section id="s5" class="card" data-title="Lương hiệu suất (B)">
-      <h2><span class="num">5</span>Cách tính Lương hiệu suất (B)</h2>
-      <p><b>Cấp nhân viên:</b></p>
-      <div class="formula">B = H × min(% hoàn thành KPI cá nhân, 100%)</div>
-      <p class="mt-3"><b>Cấp quản lý:</b> B kết hợp kết quả cá nhân và kết quả của đơn vị:</p>
-      <div class="formula">B = H × [ tỷ trọng cá nhân × min(% cá nhân, 100%) + tỷ trọng đơn vị × min(% đơn vị, 100%) ]</div>
-      <ul class="mt-3">
-        <li>CCO và SM: <b>40% cá nhân + 60% đơn vị</b>. Team Lead: <b>50% cá nhân + 50% đơn vị</b>.</li>
-        <li><b>% đơn vị</b> = [min(doanh số cá nhân QL, target cá nhân QL) + doanh số đội] ÷ target đơn vị.</li>
-        <li>Doanh số cá nhân của quản lý chỉ được tính vào % đơn vị <b>tối đa bằng target cá nhân</b>. Phần bán vượt vẫn được thưởng đầy đủ qua C₁, nhưng không dùng để bù cho kết quả của đội.</li>
-      </ul>
-      <div class="note mt-3">B không vượt quá H. Phần vượt KPI được thưởng qua C₁ và C₂.</div>
-    </section>
-
-    <!-- 6 -->
-    <section id="s6" class="card" data-title="Thưởng doanh số cá nhân (C₁)">
-      <h2><span class="num">6</span>Thưởng doanh số cá nhân (C₁)</h2>
-      <p>C₁ được tính <b>lũy tiến từng phần</b>: doanh số được chia thành các khoảng theo % target cá nhân (K_cn), mỗi khoảng có một tỷ lệ thưởng riêng và <b>chỉ áp dụng cho phần doanh số nằm trong khoảng đó</b>. Bán thêm bao nhiêu thì thưởng tăng thêm bấy nhiêu, không có "bước nhảy" ở các mốc, nên không cần dồn đơn hoặc giữ đơn sang tháng sau.</p>
-      <div class="note mt-3"><b>Lưu ý khi đọc bảng:</b> cột "Tỷ lệ cho phần này" <u>không phải</u> tỷ lệ trên toàn bộ doanh số. Tỷ lệ thực nhận trên toàn bộ doanh số là cột cuối "Tỷ lệ bình quân". Ví dụ: đạt đúng 100% target thì thưởng bằng <b>8% tổng doanh số</b>.</div>
-      <div class="overflow-x-auto mt-3 rounded-xl border border-slate-200"><table>
-        <thead><tr><th>Khoảng doanh số (theo % K_cn)</th><th class="!text-right">Tỷ lệ cho phần này</th><th class="!text-right">Thưởng cộng dồn khi đạt mốc cuối khoảng</th><th class="!text-right">Tỷ lệ bình quân trên toàn bộ doanh số</th></tr></thead>
-        <tbody id="c1-tbody"></tbody>
-      </table></div>
-      <p class="text-sm mt-2">Vì sao tỷ lệ thay đổi như vậy: dưới 50% target, thưởng thấp (2%) vì phần lớn thu nhập đã có từ Lương hiệu suất B. Từ 50% đến 120%, tỷ lệ cao (14% – 15%) để khuyến khích đạt và vượt chuẩn. Trên 120%, tỷ lệ cho phần vượt là 12% để kiểm soát chi phí, nhưng tỷ lệ bình quân vẫn tiếp tục tăng.</p>
-      <h3>Ví dụ: Nhân viên kinh doanh, W = 10.000.000 đ (S = 5tr, H = 5tr, K_cn = 50tr)</h3>
-      <div class="overflow-x-auto rounded-xl border border-slate-200"><table>
-        <thead><tr><th>Doanh số</th><th>% KPI</th><th class="!text-right">S</th><th class="!text-right">B</th><th class="!text-right">C₁</th><th class="!text-right">Tổng thu nhập</th></tr></thead>
-        <tbody id="ex-sales"></tbody>
-      </table></div>
-      <div class="text-sm mt-3 text-slate-700" id="ex-sales-explain"></div>
-    </section>
-
-    <!-- 7 -->
-    <section id="s7" class="card" data-title="Thưởng quản lý (C₂)">
-      <h2><span class="num">7</span>Thưởng quản lý (C₂) – dành cho CCO, SM, Team Lead</h2>
-      <ul>
-        <li>Mức thưởng C₂ được xác định theo <b>% đạt của đơn vị</b> (cách tính tại Mục 5), lũy tiến từng phần theo bảng dưới, rồi nhân với target đơn vị.</li>
-        <li>C₂ <b>chỉ trả trên doanh số của đội</b>. Doanh số do quản lý tự bán đã được thưởng qua C₁ nên không được tính C₂ lần nữa.</li>
-        <li><b>Ngưỡng:</b> đơn vị đạt dưới <span data-cfg="nguongQLpct"></span> target thì không có C₂.</li>
-      </ul>
-      <div class="overflow-x-auto mt-3 rounded-xl border border-slate-200"><table>
-        <thead><tr><th>Phần % đạt đơn vị</th><th class="!text-center">CCO</th><th class="!text-center">SM</th><th class="!text-right">Team Lead</th></tr></thead>
-        <tbody id="c2-tbody"></tbody>
-      </table></div>
-      <div class="formula mt-3">C₂ = [Σ tỷ lệ × phần % đạt] × target đơn vị × (doanh số đội ÷ doanh số dùng để tính % đơn vị)</div>
-      <h3>Ví dụ: Trưởng nhóm, W = 17.500.000 đ</h3>
-      <p id="ex-tl-setup"></p>
-      <div class="overflow-x-auto rounded-xl border border-slate-200"><table><tbody id="ex-tl"></tbody></table></div>
-    </section>
-
-    <!-- 8 -->
-    <section id="s8" class="card" data-title="Chính sách Cộng tác viên">
-      <h2><span class="num">8</span>Chính sách Cộng tác viên (CTV)</h2>
-      <p>CTV không có lương cơ bản và lương hiệu suất. CTV hưởng hoa hồng lũy tiến từng phần theo <b>doanh số tuyệt đối</b> trong tháng:</p>
-      <div class="overflow-x-auto mt-3 rounded-xl border border-slate-200"><table>
-        <thead><tr><th>Phần doanh số trong tháng</th><th class="!text-right">Tỷ lệ hoa hồng</th></tr></thead>
-        <tbody id="ctv-tbody"></tbody>
-      </table></div>
-      <p class="text-sm mt-2" id="ctv-explain"></p>
-      <ul class="mt-2">
-        <li>CTV chỉ được ghi nhận doanh số với <b>khách hàng mới</b>, chưa có chủ sở hữu trên CRM tại thời điểm đăng ký khách hàng.</li>
-        <li>Hoa hồng của CTV được khấu trừ thuế thu nhập cá nhân theo quy định pháp luật hiện hành trước khi chi trả.</li>
-        <li>Điều kiện ghi nhận doanh số, thời điểm chi trả và thu hồi áp dụng như nhân sự chính thức (Mục 9, 10).</li>
-      </ul>
-    </section>
-
-    <!-- 9 -->
-    <section id="s9" class="card" data-title="Điều kiện nhận lương thưởng">
-      <h2><span class="num">9</span>Điều kiện ghi nhận doanh số & nhận lương thưởng</h2>
-      <h3>9.1. Doanh số được tính thưởng khi đủ cả 4 điều kiện</h3>
-      <ol>
-        <li>Có hợp đồng hoặc đơn hàng hợp lệ, đúng bảng giá và chính sách chiết khấu được duyệt.</li>
-        <li>Đã <b>thực thu</b>: tiền đã về tài khoản Công ty trong kỳ chốt số liệu. Hợp đồng thanh toán nhiều đợt được ghi nhận theo từng đợt tiền về.</li>
-        <li>Khách hàng được ghi nhận đúng chủ sở hữu trên CRM trước khi phát sinh giao dịch.</li>
-        <li>Doanh số tính theo giá trị trước thuế GTGT, sau chiết khấu và khuyến mại.</li>
-      </ol>
-      <h3>9.2. Điều kiện nhận từng khoản</h3>
-      <ul>
-        <li><b>Lương cơ bản S:</b> theo ngày công thực tế. Trong thời gian thử việc, mức lương theo hợp đồng thử việc (không thấp hơn 85% mức lương của công việc đó theo Bộ luật Lao động).</li>
-        <li><b>Lương hiệu suất B và thưởng C₁:</b> áp dụng cả trong thời gian thử việc, tính trên target đã điều chỉnh theo ngày công.</li>
-        <li><b>Thưởng quản lý C₂:</b> chỉ áp dụng khi đã có quyết định bổ nhiệm chức danh quản lý và đơn vị đạt từ ngưỡng <span data-cfg="nguongQLpct"></span> trở lên.</li>
-      </ul>
-      <h3>9.3. Thu hồi và không chi trả</h3>
-      <ul>
-        <li>Hợp đồng bị hủy, khách hàng được hoàn tiền hoặc giảm giá trong vòng <span data-cfg="ngayThuHoi"></span> ngày kể từ ngày ghi nhận doanh số: hoa hồng tương ứng bị <b>thu hồi</b>, khấu trừ vào kỳ lương kế tiếp.</li>
-        <li>Không chi trả và thu hồi toàn bộ hoa hồng liên quan nếu phát hiện <b>gian lận</b>: doanh số ảo, tách hoặc gộp hợp đồng để hưởng tỷ lệ cao hơn, chuyển khách hàng của người khác sang mình hoặc qua CTV, khai báo sai chủ sở hữu khách hàng. Người vi phạm bị xử lý kỷ luật theo Nội quy lao động.</li>
-        <li><b>Trần chồng tầng:</b> tổng hoa hồng (C₁ của người bán + C₂ của các cấp quản lý) bình quân trên một đồng doanh thu của đơn vị trong tháng không vượt <span data-cfg="tranChongTangPct"></span>. Phần vượt trần được trừ ở cấp quản lý cao nhất.</li>
-      </ul>
-      <h3>9.4. Khi nghỉ việc</h3>
-      <ul>
-        <li>Hoa hồng của doanh số đã thực thu đến ngày làm việc cuối cùng được chi trả trong kỳ quyết toán cuối cùng.</li>
-        <li>Tiền về sau ngày nghỉ việc không được tính hoa hồng cho người đã nghỉ.</li>
-        <li>Khoản thu hồi (Mục 9.3) phát sinh trước ngày quyết toán được khấu trừ vào kỳ quyết toán cuối cùng.</li>
-      </ul>
-    </section>
-
-    <!-- 10 -->
-    <section id="s10" class="card" data-title="Chốt số liệu & chi trả">
-      <h2><span class="num">10</span>Chốt số liệu, chi trả & khiếu nại</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mt-2">
-        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200"><p class="!text-xs font-bold text-redsun-700 uppercase">Bước 1</p><p class="!text-sm"><b>Chốt doanh số</b> vào <span data-cfg="ngayChotDS"></span>.</p></div>
-        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200"><p class="!text-xs font-bold text-redsun-700 uppercase">Bước 2</p><p class="!text-sm"><b>Đối soát:</b> Kế toán gửi bảng doanh số và thu nhập dự kiến trước ngày <span data-cfg="ngayDoiSoat"></span> tháng sau.</p></div>
-        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200"><p class="!text-xs font-bold text-redsun-700 uppercase">Bước 3</p><p class="!text-sm"><b>Phản hồi:</b> nhân sự kiểm tra và phản hồi trong <span data-cfg="ngayPhanHoi"></span> ngày làm việc.</p></div>
-        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200"><p class="!text-xs font-bold text-redsun-700 uppercase">Bước 4</p><p class="!text-sm"><b>Chi trả</b> cùng kỳ lương, ngày <span data-cfg="ngayChiTra"></span> tháng sau.</p></div>
-      </div>
-      <ul class="mt-3">
-        <li>Khiếu nại gửi bằng văn bản hoặc qua hệ thống cho <span data-cfg="dauMoi"></span>, kèm chứng từ (hợp đồng, chứng từ thanh toán, lịch sử CRM).</li>
-        <li>Khiếu nại được giải quyết trong kỳ lương kế tiếp. Khoản chênh lệch (nếu có) được truy lĩnh hoặc khấu trừ ở kỳ đó.</li>
-        <li>Thu nhập được trả sau khi khấu trừ BHXH, BHYT, BHTN phần người lao động đóng và thuế TNCN theo quy định.</li>
-      </ul>
-    </section>
-
-    <!-- 11 -->
-    <section id="s11" class="card" data-title="Quản lý hiệu suất & tổ chức">
-      <h2><span class="num">11</span>Quản lý hiệu suất & nguyên tắc tổ chức</h2>
-      <h3>11.1. Kế hoạch cải thiện hiệu suất (PIP)</h3>
-      <ul>
-        <li>Nhân sự đạt dưới <span data-cfg="kpiYeuPct"></span> KPI cá nhân trong <span data-cfg="thangYeu"></span> tháng liên tiếp sẽ được đưa vào <b>Kế hoạch cải thiện hiệu suất</b> trong 1 tháng, với mục tiêu và hỗ trợ cụ thể từ quản lý trực tiếp.</li>
-        <li>Kết thúc PIP, nếu không cải thiện, Công ty xem xét điều chỉnh vị trí, mức lương W trong khung, hoặc chấm dứt hợp đồng theo quy định pháp luật.</li>
-        <li>Fresher trong 3 tháng đầu được đánh giá theo target của lộ trình tập sự (Mục 3).</li>
-      </ul>
-      <h3>11.2. Nguyên tắc tổ chức đội ngũ</h3>
-      <ul>
-        <li>Mỗi Trưởng nhóm quản lý tối thiểu <span data-cfg="spanMin"></span> nhân sự kinh doanh. Đơn vị chưa đủ quy mô thì chưa bổ nhiệm thêm cấp quản lý.</li>
-        <li>Trưởng nhóm vừa trực tiếp bán hàng vừa quản lý, nên có target cá nhân như nhân viên (X = 10).</li>
-      </ul>
-    </section>
-
-    <!-- 12 -->
-    <section id="s12" class="card" data-title="Câu hỏi thường gặp">
-      <h2><span class="num">12</span>Câu hỏi thường gặp</h2>
-      <div class="space-y-3">
-        <details class="p-4 rounded-xl bg-slate-50 border border-slate-200"><summary class="font-semibold cursor-pointer">Nếu tôi không bán được gì trong tháng thì nhận bao nhiêu?</summary><p class="mt-2">Bạn vẫn nhận lương cơ bản S theo ngày công. Lương hiệu suất B và thưởng C₁ bằng 0.</p></details>
-        <details class="p-4 rounded-xl bg-slate-50 border border-slate-200"><summary class="font-semibold cursor-pointer">Tôi đạt 99% thì có bị thiệt so với 100% không?</summary><p class="mt-2">Không đáng kể. Thưởng tính lũy tiến từng phần, nên 1% doanh số chênh lệch chỉ tạo ra chênh lệch thu nhập tương ứng với 1% đó, không có bước nhảy ở mốc 100%.</p></details>
-        <details class="p-4 rounded-xl bg-slate-50 border border-slate-200"><summary class="font-semibold cursor-pointer">Bán vượt target thì thưởng có giới hạn không?</summary><p class="mt-2">Không có trần cho thưởng C₁. Lương hiệu suất B tối đa bằng H, nhưng phần doanh số vượt tiếp tục được thưởng theo bảng Mục 6.</p></details>
-        <details class="p-4 rounded-xl bg-slate-50 border border-slate-200"><summary class="font-semibold cursor-pointer">Khách hàng ký hợp đồng tháng này nhưng tháng sau mới thanh toán thì sao?</summary><p class="mt-2">Doanh số được ghi nhận vào tháng tiền về tài khoản Công ty (thực thu), và tính vào KPI của tháng đó.</p></details>
-        <details class="p-4 rounded-xl bg-slate-50 border border-slate-200"><summary class="font-semibold cursor-pointer">Vì sao quản lý bán vượt target cá nhân không giúp tăng % đơn vị?</summary><p class="mt-2">Để thưởng quản lý phản ánh đúng kết quả của đội. Phần bán vượt của quản lý vẫn được thưởng đầy đủ qua C₁.</p></details>
-        <details class="p-4 rounded-xl bg-slate-50 border border-slate-200"><summary class="font-semibold cursor-pointer">Bảng tính thu nhập có phải là số tiền chính thức tôi nhận không?</summary><p class="mt-2">Không. Bảng tính dùng để ước tính và tự kiểm tra. Số chi trả chính thức là bảng lương đã được đối soát và phê duyệt theo Mục 10.</p></details>
-      </div>
-    </section>
-
-  </div>
+  <!-- Nội dung quy chế được nạp từ máy chủ (soạn & ban hành trong tool) -->
+  <div class="lg:col-span-9 space-y-6" id="policy-root"><div class="card text-slate-400 text-sm">Đang tải quy chế…</div></div>
 </div>
 
 <!-- ============================ TAB 2: BẢNG TÍNH ============================ -->
@@ -544,19 +357,48 @@ function compute(key, W, X, Rcn, Rteam=0, Kteam=0, KcnOv=null, cbOv=null){
 /* ============================================================================
    TÀI LIỆU: điền tham số & ví dụ
    ============================================================================ */
+/* ============================================================================
+   KHỐI SỐ LIỆU TỰ ĐỘNG trong Quy chế: <div data-block="..."> được điền từ công thức lương.
+   HR chèn các khối này ở trình soạn thảo; số liệu luôn khớp Bảng tính.
+   ============================================================================ */
+const POLICY_BLOCKS = {
+  khung_luong:      { label: 'Bảng khung lương, % lương cơ bản, hệ số KPI, target theo chức danh',
+    html: `<table><thead><tr><th>Chức danh</th><th>Khung W</th><th>CB - HS</th><th>Lương CB (S)</th><th>Lương HS (H)</th><th>Hệ số X</th><th>Target cá nhân</th></tr></thead><tbody id="range-tbody"></tbody></table>` },
+  lo_trinh_tap_su:  { label: 'Ghi chú lộ trình hệ số KPI của Tập sự', html: `<div class="note"><b>Lộ trình Tập sự (Fresher):</b> <span id="ramp-text"></span></div>` },
+  c1_de_hieu:       { label: 'Bảng dễ hiểu: đạt X% target → thưởng doanh số bao nhiêu', html: `<table><thead><tr><th>Đạt target</th><th class="!text-right">Doanh số</th><th class="!text-right">Thưởng doanh số</th><th class="!text-right">Bằng % doanh số</th><th class="!text-right">Tổng thu nhập</th></tr></thead><tbody id="c1-simple"></tbody></table>` },
+  bang_c1:          { label: 'Bảng chi tiết bậc thưởng doanh số (lũy tiến)', html: `<table><thead><tr><th>Khoảng doanh số (theo % target)</th><th class="!text-right">Tỷ lệ cho phần này</th><th class="!text-right">Thưởng cộng dồn khi đạt mốc cuối khoảng</th><th class="!text-right">Tỷ lệ bình quân trên toàn bộ doanh số</th></tr></thead><tbody id="c1-tbody"></tbody></table>` },
+  vi_du_nhan_vien:  { label: 'Ví dụ thu nhập Nhân viên kinh doanh theo mức doanh số', html: `<table><thead><tr><th>Doanh số</th><th>% KPI</th><th class="!text-right">Lương CB</th><th class="!text-right">Lương HS</th><th class="!text-right">Thưởng DS</th><th class="!text-right">Tổng thu nhập</th></tr></thead><tbody id="ex-sales"></tbody></table><div class="text-sm mt-3 text-slate-700" id="ex-sales-explain"></div>` },
+  c2_de_hieu:       { label: 'Bảng dễ hiểu: thưởng quản lý theo % đạt của đơn vị', html: `<table><thead><tr><th>Chức danh</th><th class="!text-right">Dưới ngưỡng</th><th class="!text-right">Đạt 100%</th><th class="!text-right">Đạt 120%</th><th class="!text-right">Trên 120%</th></tr></thead><tbody id="c2-simple"></tbody></table>` },
+  bang_c2:          { label: 'Bảng chi tiết bậc thưởng quản lý (lũy tiến)', html: `<table><thead><tr><th>Phần % đạt đơn vị</th><th class="!text-center">CCO</th><th class="!text-center">SM</th><th class="!text-right">Team Lead</th></tr></thead><tbody id="c2-tbody"></tbody></table>` },
+  vi_du_truong_nhom:{ label: 'Ví dụ thu nhập Trưởng nhóm', html: `<p id="ex-tl-setup"></p><table><tbody id="ex-tl"></tbody></table>` },
+  bang_ctv:         { label: 'Bảng hoa hồng Cộng tác viên', html: `<table><thead><tr><th>Phần doanh số trong tháng</th><th class="!text-right">Tỷ lệ hoa hồng</th></tr></thead><tbody id="ctv-tbody"></tbody></table><p class="text-sm mt-2" id="ctv-explain"></p>` }
+};
+const DOC_IDS = ['toc','range-tbody','ramp-text','c1-simple','c1-tbody','ex-sales','ex-sales-explain','c2-simple','c2-tbody','ex-tl-setup','ex-tl','ctv-tbody','ctv-explain'];
+let POLICY_CFG = {};      // tham số của phiên bản quy chế đang xem (ghi đè CONFIG)
+function fillPolicyBlocks(root){
+  root.querySelectorAll('[data-block]').forEach(el => { const b = POLICY_BLOCKS[el.dataset.block]; el.className = 'blk'; el.innerHTML = b ? b.html : ''; });
+}
+// Khối nào không có trong tài liệu đang xem thì tạo chỗ ẩn để renderDoc không lỗi
+function ensureDocSink(){
+  let sink = $('doc-sink'); if (!sink){ sink = document.createElement('div'); sink.id = 'doc-sink'; sink.hidden = true; document.body.appendChild(sink); }
+  for (const id of DOC_IDS) if (!$(id)){ const e = document.createElement(id.endsWith('tbody') || id === 'ex-tl' || id.endsWith('simple') || id === 'ex-sales' ? 'tbody' : 'div'); e.id = id; sink.appendChild(e); }
+}
+
 function renderDoc(){
-  const cfgView = { ...CONFIG,
-    nguongQLpct: pct(CONFIG.nguongQL,0), tranChongTangPct: pct(CONFIG.tranChongTang,0), kpiYeuPct: pct(CONFIG.kpiYeu,0) };
+  ensureDocSink();
+  // Ngưỡng thưởng quản lý lấy theo công thức (Trưởng nhóm) để luôn khớp Bảng tính
+  const t0 = C2_BANDS.tl ? C2_BANDS.tl[0][0] : CONFIG.nguongQL;
+  const cfgView = { ...CONFIG, tranChongTangPct: pct(CONFIG.tranChongTang,0), kpiYeuPct: pct(CONFIG.kpiYeu,0), ...POLICY_CFG, nguongQLpct: pct(t0,0) };
   document.querySelectorAll('[data-cfg]').forEach(el => { el.textContent = cfgView[el.dataset.cfg] ?? ''; });
 
   // Mục lục
-  $('toc').innerHTML = [...document.querySelectorAll('section[data-title]')].map((s,i)=>
+  $('toc').innerHTML = [...document.querySelectorAll('#policy-root section[data-title]')].map((s,i)=>
     `<li><button onclick="document.getElementById('${s.id}').scrollIntoView({behavior:'smooth',block:'start'})" class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-redsun-50 text-slate-600 hover:text-redsun-800"><b class="text-redsun-700 mr-1.5">${i+1}.</b>${s.dataset.title}</button></li>`).join('');
 
   // Khung lương
   $('range-tbody').innerHTML = Object.values(ROLES).filter(r=>r.doc!==false).map(r=>{
     const lbl = `<td class="font-bold text-slate-900"><span class="inline-block w-2.5 h-2.5 rounded-full ${r.dot} mr-2"></span>${r.name}</td>`;
-    if (r.type==='ctv') return `<tr>${lbl}<td>—</td><td class="italic text-slate-500">Hoa hồng thuần</td><td>—</td><td>—</td><td>—</td><td class="text-gold-700 font-semibold">Theo bậc doanh số (Mục 8)</td></tr>`;
+    if (r.type==='ctv') return `<tr>${lbl}<td>—</td><td class="italic text-slate-500">Hoa hồng thuần</td><td>—</td><td>—</td><td>—</td><td class="text-gold-700 font-semibold">Theo bậc hoa hồng CTV</td></tr>`;
     const h = 1-r.cb;
     return `<tr>${lbl}<td class="font-bold text-redsun-700">${rng(r.min,r.max)}</td><td>${r.cb*100}% - ${h*100}%</td>
       <td>${rng(r.min*r.cb,r.max*r.cb)}</td><td>${rng(r.min*h,r.max*h)}</td><td class="font-mono font-bold">x${r.X}</td>
@@ -578,7 +420,7 @@ function renderDoc(){
   }).join('');
 
   // Ví dụ Sales
-  const W=10e6, X=ROLES.sales.X, K=W*0.5*X;
+  const W=10e6, X=ROLES.sales.X, K=W*(1-ROLES.sales.cb)*X;
   $('ex-sales').innerHTML = [0.4,0.7,1.0,1.3].map(p=>{
     const c = compute('sales',W,X,p*K);
     return `<tr><td class="font-mono">${fmt(p*K)}</td><td>${Math.round(p*100)}%</td><td class="!text-right font-mono">${fmt(c.S)}</td><td class="!text-right font-mono">${fmt(c.B)}</td><td class="!text-right font-mono">${fmt(c.C1)}</td><td class="!text-right font-mono font-bold text-redsun-700">${fmt(c.N)}</td></tr>`;
@@ -595,14 +437,22 @@ function renderDoc(){
     const c = compute('sales',W,X,R);
     return `<li><b>Doanh số ${short(R)} (${Math.round(p*100)}%):</b> ${parts.join(' + ')} → C₁ = <b>${fmt(c.C1)}</b> (bằng ${pct(c.C1/R)} doanh số)</li>`;
   };
-  $('ex-sales-explain').innerHTML = `<b>Cách tính C₁ trong ví dụ:</b><ul class="mt-1">${[0.4,0.7,1.0,1.3].map(explain).join('')}</ul>`;
+  $('ex-sales-explain').innerHTML = `<b>Cách tính thưởng doanh số (C₁) trong ví dụ:</b><ul class="mt-1">${[0.4,0.7,1.0,1.3].map(explain).join('')}</ul>`;
+  // Bảng dễ hiểu: đạt X% target → thưởng bao nhiêu
+  $('c1-simple').innerHTML = [0.5,0.8,1.0,1.2,1.5].map(p=>{
+    const c = compute('sales',W,X,p*K);
+    return `<tr><td class="font-bold">${Math.round(p*100)}%</td><td class="!text-right font-mono">${fmt(p*K)}</td><td class="!text-right font-mono font-bold text-emerald-700">${fmt(c.C1)}</td><td class="!text-right">${pct(c.C1/(p*K),1)}</td><td class="!text-right font-mono font-bold">${fmt(c.N)}</td></tr>`;
+  }).join('');
 
   // C₂
-  const L = ['Phần dưới 70%','Phần 70% – 100%','Phần 100% – 120%','Phần trên 120%'];
+  const L = [`Phần dưới ${pct(t0,0)}`,`Phần ${pct(t0,0)} – 100%`,'Phần 100% – 120%','Phần trên 120%'];
   $('c2-tbody').innerHTML = L.map((l,i)=>`<tr><td>${l}</td><td class="!text-center font-bold">${pct(C2_BANDS.cco[i][1])}</td><td class="!text-center font-bold">${pct(C2_BANDS.sm[i][1])}</td><td class="!text-right font-bold">${pct(C2_BANDS.tl[i][1])}</td></tr>`).join('');
+  // Bảng dễ hiểu: thưởng quản lý ≈ % doanh số đơn vị tại các mốc
+  $('c2-simple').innerHTML = Object.entries(C2_BANDS).filter(([k])=>ROLES[k] && ROLES[k].doc!==false).map(([k,b])=>
+    `<tr><td class="font-bold">${escH(ROLES[k].name)}</td><td class="!text-right">0 (dưới ${pct(b[0][0],0)})</td><td class="!text-right font-bold">${pct(marginal(b,1),2)}</td><td class="!text-right font-bold">${pct(marginal(b,1.2)/1.2,2)}</td><td class="!text-right">${pct(b[3][1],2)} cho phần vượt</td></tr>`).join('');
 
   // Ví dụ Team Lead
-  const tW=17.5e6, tX=ROLES.tl.X, tK=tW*0.6*tX, kTeam=7*50e6, rCn=80e6, rTeam=380e6;
+  const tW=17.5e6, tX=ROLES.tl.X, tK=tW*(1-ROLES.tl.cb)*tX, kTeam=7*50e6, rCn=80e6, rTeam=380e6;
   const t = compute('tl',tW,tX,rCn,rTeam,kTeam);
   $('ex-tl-setup').innerHTML = `S = ${fmt(t.S)}, H = ${fmt(t.H)}, target cá nhân K_cn = ${fmt(tK)}. Nhóm có 7 nhân viên, mỗi người target 50tr, nên target đội = ${fmt(kTeam)}. Target đơn vị = ${fmt(t.Kunit)}. Trong tháng, Trưởng nhóm tự bán ${fmt(rCn)} và đội bán ${fmt(rTeam)}.`;
   const row = (a,b,bold) => `<tr><td>${a}</td><td class="!text-right font-mono ${bold?'font-bold text-redsun-700':''}">${b}</td></tr>`;
@@ -610,14 +460,14 @@ function renderDoc(){
     row('% cá nhân', pctFloor(t.Pcn)) +
     row(`% đơn vị = (${short(Math.min(rCn,tK))} + ${short(rTeam)}) ÷ ${short(t.Kunit)}`, pctFloor(t.Punit)) +
     row('Lương cơ bản S', fmt(t.S)) +
-    row(`Lương hiệu suất B = H × (50% × ${pct(Math.min(t.Pcn,1),0)} + 50% × ${pct(Math.min(t.Punit,1),0)})`, fmt(t.B)) +
+    row(`Lương hiệu suất B = H × (${pct(ROLES.tl.wCn,0)} × ${pct(Math.min(t.Pcn,1),0)} + ${pct(ROLES.tl.wQl,0)} × ${pct(Math.min(t.Punit,1),0)})`, fmt(t.B)) +
     row('Thưởng cá nhân C₁', fmt(t.C1)) +
     row('Thưởng quản lý C₂ (chỉ trên doanh số của đội)', fmt(t.C2)) +
     row('Tổng thu nhập', fmt(t.N), true);
 
   // CTV
-  const LC = ['0 – 20 Tr','20 – 50 Tr','50 – 100 Tr','Trên 100 Tr'];
-  $('ctv-tbody').innerHTML = CTV_BANDS.map((b,i)=>`<tr><td>Phần doanh số ${LC[i]}</td><td class="!text-right font-bold">${pct(b[1])}</td></tr>`).join('');
+  let lo = 0;
+  $('ctv-tbody').innerHTML = CTV_BANDS.map((b)=>{ const l = isFinite(b[0]) ? `${short(lo)} – ${short(b[0])}` : `Trên ${short(lo)}`; lo = b[0]; return `<tr><td>Phần doanh số ${l}</td><td class="!text-right font-bold">${pct(b[1])}</td></tr>`; }).join('');
   $('ctv-explain').innerHTML = `Ví dụ: CTV mang về 30tr được hoa hồng ${fmt(marginal(CTV_BANDS,30e6))}; mang về 80tr được ${fmt(marginal(CTV_BANDS,80e6))}.`;
 }
 

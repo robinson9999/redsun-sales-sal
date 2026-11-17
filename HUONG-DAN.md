@@ -28,6 +28,18 @@ Nhân viên phòng *theo điểm KPI* xem tiêu chí và tự ước tính thu n
 
 Chỉ xóa được phòng ban/chức danh khi không còn nhân viên nào gán vào. Phòng **Ngừng sử dụng** sẽ ẩn khỏi danh sách chọn khi thêm nhân viên.
 
+## 1b. Quy chế: đọc, soạn thảo, ban hành (tab Quy chế)
+Mọi người đọc **bản đang ban hành** (ghi số phiên bản, ngày ban hành). Người có quyền mục *Quy chế lương thưởng* (tab 🔐 Phân quyền) thấy thêm các nút:
+- **✎ Soạn bản mới / Soạn tiếp bản nháp** (quyền Sửa): sửa tiêu đề, lời mở đầu, từng mục (thêm, xóa, đổi thứ tự). Thanh công cụ: đậm/nghiêng, tiêu đề nhỏ, danh sách, ô Ghi chú/Mẹo/Cảnh báo, công thức, liên kết, bảng, hỏi đáp.
+  - **📊 Chèn bảng số liệu tự động**: khung lương, thưởng doanh số, ví dụ thu nhập, thưởng quản lý, hoa hồng CTV… Số liệu lấy từ *Công thức lương* nên luôn khớp Bảng tính, HR không phải gõ số.
+  - **🔤 Tham số**: ngày giao target, ngày chốt, ngày chi trả, đầu mối… sửa một lần ở tab Tham số, mọi chỗ trong văn bản tự cập nhật.
+  - **👁 Xem trước**, **💾 Lưu nháp**. Nhân viên chưa thấy bản nháp.
+- **Ban hành…** (quyền Thêm): bản nháp thành phiên bản chính thức (tự đánh số 1.1, 1.2…), mọi người thấy ngay.
+- **🕘 Lịch sử phiên bản**: xem lại mọi bản đã ban hành, **Lấy làm bản nháp** để khôi phục bản cũ. **Hủy nháp** (quyền Xóa).
+- **＋ Quy chế mới**: tạo quy chế cho phòng ban khác.
+
+Gợi ý: tạo nhóm quyền *Nhân sự (HR)* có Xem + Sửa mục Quy chế (soạn thảo), để quyền Thêm (ban hành) cho Ban Giám đốc.
+
 ## 2a. Phân quyền (tab 🔐 Phân quyền)
 Mỗi tài khoản thuộc một **nhóm quyền**. Nhóm quyền gồm:
 - **Ma trận Xem / Thêm / Sửa / Xóa** cho từng mục: Quy chế, Bảng tính, KPI của bạn, Phiếu khảo sát, Proposal, Tài liệu nội bộ, Giao KPI, Nhân viên, Phòng ban – chức danh – công thức, Phân quyền, Cài đặt. Bên dưới tên mỗi mục ghi rõ từng quyền cho phép làm gì (vd Nhân viên: Xóa = khóa tài khoản). Có Thêm/Sửa/Xóa thì tự có Xem. Tab chỉ hiện với người có quyền Xem.
