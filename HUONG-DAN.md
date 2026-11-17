@@ -28,6 +28,15 @@ Nhân viên phòng *theo điểm KPI* xem tiêu chí và tự ước tính thu n
 
 Chỉ xóa được phòng ban/chức danh khi không còn nhân viên nào gán vào. Phòng **Ngừng sử dụng** sẽ ẩn khỏi danh sách chọn khi thêm nhân viên.
 
+## 2a. Phân quyền (tab 🔐 Phân quyền)
+Mỗi tài khoản thuộc một **nhóm quyền**. Nhóm quyền gồm:
+- **Ma trận Xem / Thêm / Sửa / Xóa** cho từng mục: Quy chế, Bảng tính, KPI của bạn, Phiếu khảo sát, Proposal, Tài liệu nội bộ, Giao KPI, Nhân viên, Phòng ban – chức danh – công thức, Phân quyền, Cài đặt. Bên dưới tên mỗi mục ghi rõ từng quyền cho phép làm gì (vd Nhân viên: Xóa = khóa tài khoản). Có Thêm/Sửa/Xóa thì tự có Xem. Tab chỉ hiện với người có quyền Xem.
+- **Phạm vi dữ liệu**: Toàn công ty / Bản thân & cấp dưới (theo cây quản lý trực tiếp) / Chỉ bản thân – áp dụng cho nhân viên, KPI, phiếu khảo sát, proposal.
+
+3 nhóm gốc giữ đúng quyền cũ: **Admin** (toàn quyền, không sửa được), **Quản lý**, **Nhân viên** (sửa được ma trận). Tạo nhóm mới bằng **＋ Tạo nhóm** hoặc **Nhân bản nhóm**. Chỉ xóa được nhóm tự tạo khi không còn tài khoản nào.
+
+Gán nhóm cho từng người: tab **Nhân viên** → **Sửa** → **Nhóm quyền** (cần quyền Sửa mục Phân quyền). Chỉ tài khoản nhóm Admin được tạo/sửa tài khoản Admin; không ai tự khóa hoặc tự đổi nhóm của chính mình.
+
 ## 2b. Admin: tạo tài khoản nhân viên
 **Cách 1 – Từng người:** tab **Nhân viên** → **＋ Thêm nhân viên** → nhập email, họ tên, chọn **Phòng ban** → chọn **Chức danh** của phòng (form hiện cách tính lương, thưởng, KPI theo công thức của phòng), quyền, quản lý trực tiếp, **tổng lương W** và **tỷ lệ lương cơ bản (%)** (để trống = theo tham số của chức danh) → form hiện ngay lương cơ bản S, lương hiệu suất H và target mặc định → **Tạo tài khoản** → bấm **Sao chép nội dung** và gửi riêng cho nhân viên.
 

@@ -79,6 +79,7 @@
       <button id="tab-btn-docs" onclick="switchTab('docs')" class="py-3 px-1 border-b-2 font-semibold text-sm">Tài liệu nội bộ</button>
       <button id="tab-btn-assign" onclick="switchTab('assign')" class="hidden py-3 px-1 border-b-2 font-semibold text-sm">Giao KPI</button>
       <button id="tab-btn-staff" onclick="switchTab('staff')" class="hidden py-3 px-1 border-b-2 font-semibold text-sm">Nhân viên</button>
+      <button id="tab-btn-perm" onclick="switchTab('perm')" class="hidden py-3 px-1 border-b-2 font-semibold text-sm">🔐 Phân quyền</button>
       <button id="tab-btn-settings" onclick="switchTab('settings')" class="hidden py-3 px-1 border-b-2 font-semibold text-sm">⚙ Cài đặt</button>
     </nav>
   </div>
@@ -441,6 +442,7 @@
 <div id="tab-docs" class="hidden"></div>
 <div id="tab-assign" class="hidden"></div>
 <div id="tab-staff" class="hidden"></div>
+<div id="tab-perm" class="hidden"></div>
 <div id="tab-settings" class="hidden"></div>
 </main>
 <div id="modal" class="hidden fixed inset-0 z-[60] bg-slate-900/60 flex items-center justify-center p-4" onclick="if(event.target===this && !this.dataset.locked) closeModal()">
@@ -803,9 +805,10 @@ function recalc(){
 }
 
 /* ---------- Tab ---------- */
-const TABS = { policy:'quy-che', calc:'bang-tinh', kpi:'kpi-cua-ban', survey:'khao-sat', proposal:'proposal', docs:'tai-lieu', assign:'giao-kpi', staff:'nhan-vien', settings:'cai-dat' };
+const TABS = { policy:'quy-che', calc:'bang-tinh', kpi:'kpi-cua-ban', survey:'khao-sat', proposal:'proposal', docs:'tai-lieu', assign:'giao-kpi', staff:'nhan-vien', perm:'phan-quyen', settings:'cai-dat' };
 function switchTab(t){
-  if (!TABS[t] || $('tab-btn-'+t).classList.contains('hidden') && t!=='policy') t = 'policy';
+  // Tab không có quyền xem → tab đầu tiên được phép
+  if (!TABS[t] || $('tab-btn-'+t).classList.contains('hidden')) t = Object.keys(TABS).find(k => !$('tab-btn-'+k).classList.contains('hidden')) || 'policy';
   const on='py-3 px-1 border-b-2 font-semibold text-sm border-gold-400 text-gold-400';
   const off='py-3 px-1 border-b-2 font-semibold text-sm border-transparent text-slate-300 hover:text-white';
   for (const k of Object.keys(TABS)){

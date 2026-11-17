@@ -8,6 +8,7 @@
 import { WorkerMailer } from 'worker-mailer';
 import { getTemplate, sanitizeAnswers, validateAnswers, renderReport, renderText, surveyTitle } from '../public/survey-lib.js';
 import { PROPOSALS, getProposal } from '../public/proposal/catalog.js';
+import { ACTIONS, MODULES, BUILTIN_GROUPS, cleanPerms, permsMeta } from './perms.js';
 import { SALES_TITLES, BUILTIN_FORMULA, BUILTIN_PARAMS, TEMPLATES, NONE_FORMULA, cleanConfig, cleanParams, defaultParams, templatesPublic } from './formulas.js';
 
 const PBKDF2_ITER = 50000;               // Workers giới hạn tối đa 100.000; 50.000 để vừa CPU gói miễn phí
@@ -23,7 +24,39 @@ const TITLES = {
   ctv:    { name: 'Cộng tác viên (CTV)',                cb: 0,   X: 0 },
   other:  { name: 'Khác (không thuộc khối KD)',         cb: 0,   X: 0 }
 };
-const APP_ROLES = ['admin', 'manager', 'staff'];
+/* Phân quyền: nhóm quyền (users.app_role = id nhóm) → ma trận Xem/Thêm/Sửa/Xóa + phạm vi dữ liệu (worker/perms.js) */
+async function loadGroups(env) {
+  const [g, c] = await env.DB.batch([
+    env.DB.prepare('SELECT * FROM perm_groups ORDER BY sort, created_at'),
+    env.DB.prepare('SELECT app_role, COUNT(*) AS n FROM users GROUP BY app_role')
+  ]);
+  const used = Object.fromEntries(c.results.map((x) => [x.app_role, x.n]));
+  const out = {};
+  for (const x of g.results) {
+    const b = BUILTIN_GROUPS[x.id];
+    out[x.id] = { id: x.id, name: x.name, description: x.description || '', scope: x.id === 'admin' ? 'all' : x.scope, builtin: !!b, locked: x.id === 'admin',
+      perms: x.id === 'admin' ? cleanPerms(BUILTIN_GROUPS.admin.perms) : cleanPerms(parseJ(x.perms, {})), users: used[x.id] || 0, sort: x.sort };
+  }
+  return out;
+}
+const NO_PERM = { id: null, name: '—', scope: 'self', perms: {} };
+async function attachPerm(env, me) {
+  if (me.perm) return me.perm;
+  const r = await env.DB.prepare('SELECT * FROM perm_groups WHERE id=?1').bind(me.app_role).first();
+  me.perm = !r ? NO_PERM : me.app_role === 'admin' ? { id: 'admin', name: r.name, scope: 'all', perms: cleanPerms(BUILTIN_GROUPS.admin.perms) }
+    : { id: r.id, name: r.name, scope: r.scope, perms: cleanPerms(parseJ(r.perms, {})) };
+  return me.perm;
+}
+const can = (me, mod, act = 'view') => !!(me.perm && me.perm.perms[mod] && me.perm.perms[mod].includes(act));
+const scopeOf = (me) => (me.perm ? me.perm.scope : 'self');
+// Danh sách id người dùng trong phạm vi dữ liệu của me (null = toàn công ty)
+async function scopeIds(env, me) {
+  const s = scopeOf(me);
+  if (s === 'all') return null;
+  if (s === 'team') return [me.id, ...(await subtreeIds(env, me.id))];
+  return [me.id];
+}
+const deny = (mod, act) => bad(`Bạn không có quyền ${ACTIONS[act].toLowerCase()} ở mục "${MODULES[mod].name}". Liên hệ Admin để được cấp quyền.`, 403);
 
 /* Công thức lương, thưởng, KPI: lưu trong bảng formulas (tạo từ mẫu ở worker/formulas.js).
    Mỗi phòng ban chọn một công thức; mỗi chức danh có tham số riêng (khung lương, %CB, hệ số KPI, thưởng QL, phụ cấp).
@@ -242,6 +275,15 @@ async function ensureSchema(env) {
       active INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL)`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS title_names (id TEXT PRIMARY KEY, name TEXT, en TEXT)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS perm_groups (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      scope TEXT NOT NULL DEFAULT 'self',
+      perms TEXT NOT NULL DEFAULT '{}',
+      sort INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL)`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS formulas (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -266,6 +308,9 @@ async function ensureSchema(env) {
     'ALTER TABLE dept_titles ADD COLUMN params TEXT', 'ALTER TABLE title_names ADD COLUMN params TEXT']) {
     try { await env.DB.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(String(e.message))) throw e; }
   }
+  // 3 nhóm quyền gốc (giữ đúng quyền admin / manager / staff trước đây)
+  await env.DB.batch(Object.entries(BUILTIN_GROUPS).map(([id, g]) => env.DB.prepare(`INSERT OR IGNORE INTO perm_groups (id,name,description,scope,perms,sort,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?7)`)
+    .bind(id, g.name, g.description, g.scope, JSON.stringify(cleanPerms(g.perms)), g.sort, now())));
   // Công thức gốc của khối Kinh doanh (Quy chế hiện hành)
   await env.DB.prepare(`INSERT OR IGNORE INTO formulas (id,name,template,description,config,builtin,created_at,updated_at) VALUES (?1,?2,'sales_3p',?3,?4,1,?5,?5)`)
     .bind(BUILTIN_FORMULA, 'Lương 3P – Khối Kinh doanh', 'Quy chế lương thưởng khối Kinh doanh hiện hành.', JSON.stringify(TEMPLATES.sales_3p.config), now()).run();
@@ -289,9 +334,11 @@ async function subtreeIds(env, managerId) {
     SELECT id FROM t`).bind(managerId).all();
   return new Set(r.results.map((x) => x.id));
 }
+// Người dùng targetId có nằm trong phạm vi dữ liệu (cấp dưới) của actor không – không tính chính mình
 async function canManage(env, actor, targetId) {
-  if (actor.app_role === 'admin') return true;
-  if (actor.app_role !== 'manager') return false;
+  const s = scopeOf(actor);
+  if (s === 'all') return true;
+  if (s !== 'team') return false;
   return (await subtreeIds(env, actor.id)).has(targetId);
 }
 
@@ -505,7 +552,7 @@ async function emailSurvey(env, url, row, owner) {
   return { email_status: status, email_error: error, email_to: to.join(', ') };
 }
 async function canViewSurvey(env, me, row) {
-  return row.user_id === me.id || me.app_role === 'admin' || (me.app_role === 'manager' && (await subtreeIds(env, me.id)).has(row.user_id));
+  return row.user_id === me.id || (await canManage(env, me, row.user_id));
 }
 
 /* ---------------------------- Tài liệu nội bộ ---------------------------- */
@@ -539,7 +586,7 @@ function shareView(r, url) {
     link: shareLink(url, r.token) };
 }
 async function canSeeShare(env, me, row) {
-  return row.user_id === me.id || me.app_role === 'admin' || (me.app_role === 'manager' && (await subtreeIds(env, me.id)).has(row.user_id));
+  return row.user_id === me.id || (await canManage(env, me, row.user_id));
 }
 // Thông tin điền vào proposal: nhân viên (từ hồ sơ trong tab Nhân viên) + công ty (tab Cài đặt) + khách hàng
 const staffTitle = (u, lang = 'vi') => {
@@ -724,14 +771,19 @@ async function api(req, env, url, me, ctx) {
     const mgr = me.manager_id ? await env.DB.prepare('SELECT id,name,email FROM users WHERE id=?1').bind(me.manager_id).first() : null;
     const cfg = await getSettings(env);
     const org = await loadOrg(env);
-    return json({ user: publicUser(me), manager: mgr, ...orgPublic(org),
+    await attachPerm(env, me);
+    return json({ user: publicUser(me), manager: mgr, ...orgPublic(org), perm: me.perm, perm_meta: permsMeta(),
       company: cfg.company_name, idle_minutes: intSetting(cfg.idle_minutes, 0, 0, 1440) });
   }
 
   /* ----- Phòng ban, chức danh, công thức lương thưởng KPI ----- */
   if (p === '/api/org' && method === 'GET') return json(orgPublic(await loadOrg(env)));
   if (p.startsWith('/api/org/') && me.must_change) return bad('Bạn cần đổi mật khẩu trước khi tiếp tục.', 403);
-  if (p.startsWith('/api/org/') && me.app_role !== 'admin') return bad('Chỉ Admin được quản lý phòng ban và chức danh.', 403);
+  if (p.startsWith('/api/org/')) {
+    await attachPerm(env, me);
+    const act = method === 'POST' ? 'add' : method === 'DELETE' ? 'delete' : 'edit';
+    if (!can(me, 'org', act)) return deny('org', act);
+  }
   /* Công thức: tạo từ mẫu (hoặc nhân bản), sửa tham số chung, xóa khi không phòng nào dùng */
   if (p === '/api/org/formulas' && method === 'POST') {
     const org = await loadOrg(env), src = body.from ? org.formulas[body.from] : null;
@@ -905,25 +957,70 @@ async function api(req, env, url, me, ctx) {
 
   // Bắt buộc đổi mật khẩu trước khi dùng các chức năng khác
   if (me.must_change) return bad('Bạn cần đổi mật khẩu trước khi tiếp tục.', 403);
+  await attachPerm(env, me);
+
+  /* ----- Nhóm quyền ----- */
+  if (p === '/api/perm-groups' && method === 'GET') {
+    if (!can(me, 'perm', 'view') && !can(me, 'staff', 'view')) return deny('perm', 'view');
+    return json({ groups: Object.values(await loadGroups(env)), meta: permsMeta() });
+  }
+  if (p === '/api/perm-groups' && method === 'POST') {
+    if (!can(me, 'perm', 'add')) return deny('perm', 'add');
+    const groups = await loadGroups(env), src = body.from ? groups[body.from] : null;
+    const name = String(body.name || '').trim().slice(0, 80);
+    if (!name) return bad('Chưa nhập tên nhóm quyền.');
+    if (Object.values(groups).some((g) => g.name.toLowerCase() === name.toLowerCase())) return bad('Đã có nhóm quyền tên này.');
+    const id = 'g-' + hex(crypto.getRandomValues(new Uint8Array(5)));
+    const scope = ['all', 'team', 'self'].includes(body.scope) ? body.scope : src ? src.scope : 'self';
+    const perms = cleanPerms(body.perms || (src ? src.perms : BUILTIN_GROUPS.staff.perms));
+    await env.DB.prepare('INSERT INTO perm_groups (id,name,description,scope,perms,sort,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?7)')
+      .bind(id, name, String(body.description || '').trim().slice(0, 300), scope, JSON.stringify(perms), Object.keys(groups).length, now()).run();
+    return json({ ok: true, id });
+  }
+  let pm = p.match(/^\/api\/perm-groups\/([a-z0-9-]+)$/);
+  if (pm && (method === 'PUT' || method === 'DELETE')) {
+    const act = method === 'PUT' ? 'edit' : 'delete';
+    if (!can(me, 'perm', act)) return deny('perm', act);
+    const groups = await loadGroups(env), g = groups[pm[1]];
+    if (!g) return bad('Không tìm thấy nhóm quyền.', 404);
+    if (g.locked) return bad('Nhóm Admin luôn có toàn quyền, không sửa/xóa được.');
+    if (method === 'DELETE') {
+      if (g.builtin) return bad('Không xóa được nhóm quyền gốc.');
+      if (g.users) return bad(`Nhóm đang có ${g.users} tài khoản. Hãy chuyển họ sang nhóm khác trước khi xóa.`);
+      await env.DB.prepare('DELETE FROM perm_groups WHERE id=?1').bind(g.id).run();
+      return json({ ok: true });
+    }
+    const name = body.name === undefined ? g.name : String(body.name || '').trim().slice(0, 80);
+    if (!name) return bad('Chưa nhập tên nhóm quyền.');
+    if (Object.values(groups).some((x) => x.id !== g.id && x.name.toLowerCase() === name.toLowerCase())) return bad('Đã có nhóm quyền tên này.');
+    const scope = body.scope === undefined ? g.scope : (['all', 'team', 'self'].includes(body.scope) ? body.scope : null);
+    if (!scope) return bad('Phạm vi dữ liệu không hợp lệ.');
+    const perms = body.perms === undefined ? g.perms : cleanPerms(body.perms);
+    // Không tự khóa mình khỏi màn hình phân quyền
+    if (g.id === me.app_role && !(perms.perm || []).includes('edit')) return bad('Bạn đang ở nhóm này: không thể bỏ quyền "Sửa" mục Phân quyền của chính nhóm mình.');
+    await env.DB.prepare('UPDATE perm_groups SET name=?1, description=?2, scope=?3, perms=?4, updated_at=?5 WHERE id=?6')
+      .bind(name, body.description === undefined ? g.description : String(body.description || '').trim().slice(0, 300), scope, JSON.stringify(perms), now(), g.id).run();
+    return json({ ok: true });
+  }
 
   /* ----- Nhân viên ----- */
   if (p === '/api/users' && method === 'GET') {
-    if (me.app_role === 'admin') {
+    if (!can(me, 'staff', 'view') && !can(me, 'assign', 'view') && !can(me, 'calc', 'view')) return deny('staff', 'view');
+    const ids = await scopeIds(env, me);
+    // Không có quyền mục Nhân viên: chỉ dùng để chọn người ở Bảng tính / Giao KPI (thông tin rút gọn)
+    if (ids === null) {
       const r = await env.DB.prepare(`SELECT ${USER_COLS} FROM users ORDER BY active DESC, name`).all();
       return json({ users: r.results, scope: 'all' });
     }
-    if (me.app_role === 'manager') {
-      const ids = [...(await subtreeIds(env, me.id))];
-      if (!ids.length) return json({ users: [], scope: 'team' });
-      const r = await env.DB.prepare(`SELECT ${USER_COLS} FROM users WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY active DESC, name`).bind(...ids).all();
-      return json({ users: r.results, scope: 'team' });
-    }
-    return bad('Bạn không có quyền xem danh sách nhân viên.', 403);
+    const r = await env.DB.prepare(`SELECT ${USER_COLS} FROM users WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY active DESC, name`).bind(...ids).all();
+    return json({ users: r.results, scope: scopeOf(me) });
   }
   if (p === '/api/users' && method === 'POST') {
-    if (me.app_role !== 'admin') return bad('Chỉ Admin được thêm nhân viên.', 403);
+    if (!can(me, 'staff', 'add')) return deny('staff', 'add');
     const v = await validateUser(env, body, null);
     if (v.error) return bad(v.error);
+    const g = await userGroupCheck(env, me, null, v);
+    if (g) return bad(g, 403);
     const pw = tempPassword();
     const r = await env.DB.prepare(`INSERT INTO users (email,name,title,app_role,manager_id,salary_w,cb_ratio,start_date,active,pw_hash,must_change,created_at,phone,contact_email,dept_id)
         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,1,?9,1,?10,?11,?12,?13)`)
@@ -931,13 +1028,16 @@ async function api(req, env, url, me, ctx) {
     return json({ ok: true, id: r.meta.last_row_id, temp_password: pw });
   }
   if (p === '/api/users/import' && method === 'POST') {
-    if (me.app_role !== 'admin') return bad('Chỉ Admin được nhập danh sách nhân viên.', 403);
+    if (!can(me, 'staff', 'add')) return deny('staff', 'add');
+    if (scopeOf(me) !== 'all') return bad('Nhập danh sách từ file cần phạm vi dữ liệu Toàn công ty.', 403);
     const rows = Array.isArray(body.users) ? body.users.slice(0, 500) : [];
     if (!rows.length) return bad('File không có dòng nào.');
     const created = [], skipped = [];
     for (const r of rows) {
       const v = await validateUser(env, { ...r, manager_id: null }, null);
       if (v.error) { skipped.push({ email: r.email, reason: v.error }); continue; }
+      const gerr = await userGroupCheck(env, me, null, v);
+      if (gerr) { skipped.push({ email: v.email, reason: gerr }); continue; }
       const given = String(r.password || '');
       if (given && given.length < 8) { skipped.push({ email: v.email, reason: 'Mật khẩu dưới 8 ký tự.' }); continue; }
       const pw = given || tempPassword();
@@ -959,13 +1059,17 @@ async function api(req, env, url, me, ctx) {
   }
   let m = p.match(/^\/api\/users\/(\d+)$/);
   if (m && method === 'PUT') {
-    if (me.app_role !== 'admin') return bad('Chỉ Admin được sửa thông tin nhân viên.', 403);
+    if (!can(me, 'staff', 'edit')) return deny('staff', 'edit');
     const id = +m[1];
     const u = await env.DB.prepare('SELECT * FROM users WHERE id=?1').bind(id).first();
     if (!u) return bad('Không tìm thấy nhân viên.', 404);
     const v = await validateUser(env, { ...u, ...body }, id);
     if (v.error) return bad(v.error);
     const active = body.active === undefined ? u.active : (body.active ? 1 : 0);
+    if (u.active && !active && !can(me, 'staff', 'delete')) return deny('staff', 'delete');
+    if (id === me.id && (!active || v.app_role !== u.app_role)) return bad('Không tự khóa hoặc tự đổi nhóm quyền của chính mình.');
+    const gerr = await userGroupCheck(env, me, u, v);
+    if (gerr) return bad(gerr, 403);
     // Không để hệ thống mất Admin cuối cùng
     if (u.app_role === 'admin' && (v.app_role !== 'admin' || !active)) {
       const c = await env.DB.prepare(`SELECT COUNT(*) AS n FROM users WHERE app_role='admin' AND active=1 AND id<>?1`).bind(id).first();
@@ -979,8 +1083,12 @@ async function api(req, env, url, me, ctx) {
   }
   m = p.match(/^\/api\/users\/(\d+)\/reset-password$/);
   if (m && method === 'POST') {
-    if (me.app_role !== 'admin') return bad('Chỉ Admin được cấp lại mật khẩu.', 403);
+    if (!can(me, 'staff', 'edit')) return deny('staff', 'edit');
     const id = +m[1], pw = tempPassword();
+    const tu = await env.DB.prepare('SELECT id, app_role FROM users WHERE id=?1').bind(id).first();
+    if (!tu) return bad('Không tìm thấy nhân viên.', 404);
+    if (id !== me.id && !(await canManage(env, me, id))) return bad('Nhân viên này nằm ngoài phạm vi quản lý của bạn.', 403);
+    if (tu.app_role === 'admin' && me.app_role !== 'admin') return bad('Chỉ tài khoản nhóm Admin được cấp lại mật khẩu cho Admin.', 403);
     const r = await env.DB.prepare('UPDATE users SET pw_hash=?1, must_change=1, failed=0, locked_until=0 WHERE id=?2').bind(await hashPassword(pw), id).run();
     if (!r.meta.changes) return bad('Không tìm thấy nhân viên.', 404);
     await env.DB.prepare('DELETE FROM sessions WHERE user_id=?1').bind(id).run();
@@ -993,13 +1101,15 @@ async function api(req, env, url, me, ctx) {
     const y = +url.searchParams.get('year') || new Date().getFullYear();
     const uid = url.searchParams.get('user_id');
     let ids;
-    if (uid === 'me' || !uid) {
-      if (uid === 'me') ids = [me.id];
-      else if (me.app_role === 'admin') ids = null;            // tất cả
-      else if (me.app_role === 'manager') ids = [...(await subtreeIds(env, me.id))];
-      else ids = [me.id];
+    if (uid === 'me') {
+      if (!can(me, 'kpi') && !can(me, 'calc')) return deny('kpi', 'view');
+      ids = [me.id];
+    } else if (!uid) {
+      if (!can(me, 'assign')) return deny('assign', 'view');
+      ids = await scopeIds(env, me);
     } else {
       const t = +uid;
+      if (t !== me.id && !(can(me, 'assign') || can(me, 'calc'))) return deny('assign', 'view');
       if (t !== me.id && !(await canManage(env, me, t))) return bad('Bạn không có quyền xem KPI của nhân viên này.', 403);
       ids = [t];
     }
@@ -1013,11 +1123,12 @@ async function api(req, env, url, me, ctx) {
   if (p === '/api/kpis/suggest-team' && method === 'GET') {
     const uid = +url.searchParams.get('user_id'), y = +url.searchParams.get('year'), mo = +url.searchParams.get('month');
     const f = +(url.searchParams.get('factor') || 1);
-    if (!(await canManage(env, me, uid))) return bad('Không có quyền.', 403);
+    if (!can(me, 'assign') || !(await canManage(env, me, uid))) return bad('Không có quyền.', 403);
     return json({ kteam: await suggestTeamTarget(env, uid, y, mo, f) });
   }
   if (p === '/api/kpis' && method === 'POST') {
-    if (!['admin', 'manager'].includes(me.app_role)) return bad('Bạn không có quyền giao KPI.', 403);
+    if (!can(me, 'assign', 'add') && !can(me, 'assign', 'edit')) return deny('assign', 'add');
+    if (scopeOf(me) === 'self') return bad('Phạm vi dữ liệu của bạn chỉ là bản thân, không giao KPI được.', 403);
     const userIds = [...new Set((body.user_ids || []).map(Number))].filter(Boolean);
     const months = [...new Set((body.months || []).map(Number))].filter((x) => x >= 1 && x <= 12);
     const year = +body.year;
@@ -1032,12 +1143,13 @@ async function api(req, env, url, me, ctx) {
     if (xOv !== null && !(xOv > 0 && xOv <= 50)) return bad('Hệ số X không hợp lệ.');
     if (kcnOv !== null && !(kcnOv >= 0)) return bad('Target cá nhân không hợp lệ.');
     if (!(factor >= 0.5 && factor <= 2)) return bad('Hệ số target đội không hợp lệ.');
-    const scope = me.app_role === 'admin' ? null : await subtreeIds(env, me.id);
+    const isAll = scopeOf(me) === 'all';
+    const scope = isAll ? null : await subtreeIds(env, me.id);
     const stmts = [], preview = [];
     // Giao cấp dưới trước để target đội của cấp trên tự cộng đúng
     const users = [];
     for (const id of userIds) {
-      if (me.app_role !== 'admin' && (id === me.id || !scope.has(id))) return bad('Chỉ được giao KPI cho nhân viên thuộc quyền quản lý của bạn.', 403);
+      if (!isAll && (id === me.id || !scope.has(id))) return bad('Chỉ được giao KPI cho nhân viên thuộc quyền quản lý của bạn.', 403);
       const u = await env.DB.prepare('SELECT * FROM users WHERE id=?1 AND active=1').bind(id).first();
       if (!u) return bad(`Không tìm thấy nhân viên #${id}.`);
       if (!hasRevenueKpi(u.title)) return bad(`${u.name} thuộc công thức không giao KPI doanh số (chỉ công thức "Lương 3P theo doanh số" giao KPI ở đây).`);
@@ -1050,6 +1162,11 @@ async function api(req, env, url, me, ctx) {
       const t = titleParams(u.title) || {};
       const x = xOv ?? (t.X || 0);
       for (const mo of months) {
+        if (!can(me, 'assign', 'add') || !can(me, 'assign', 'edit')) {       // giao mới = Thêm, giao lại tháng đã có = Sửa
+          const ex = await env.DB.prepare('SELECT id FROM kpis WHERE user_id=?1 AND year=?2 AND month=?3').bind(u.id, year, mo).first();
+          if (ex && !can(me, 'assign', 'edit')) return bad(`${u.name} đã có KPI tháng ${mo}/${year}; bạn không có quyền Sửa KPI đã giao.`, 403);
+          if (!ex && !can(me, 'assign', 'add')) return bad(`${u.name} chưa có KPI tháng ${mo}/${year}; bạn không có quyền Thêm (giao mới) KPI.`, 403);
+        }
         const kcn = kcnOv ?? defaultKcn(u, x);
         let kteam = null;
         if (t.type === 'mgr') kteam = kteamOv ?? await suggestTeamTarget(env, u.id, year, mo, factor);
@@ -1069,7 +1186,8 @@ async function api(req, env, url, me, ctx) {
   if (m && method === 'DELETE') {
     const k = await env.DB.prepare('SELECT * FROM kpis WHERE id=?1').bind(+m[1]).first();
     if (!k) return bad('Không tìm thấy KPI.', 404);
-    if (me.app_role !== 'admin' && (k.user_id === me.id || !(await canManage(env, me, k.user_id)))) return bad('Không có quyền xóa KPI này.', 403);
+    if (!can(me, 'assign', 'delete')) return deny('assign', 'delete');
+    if (scopeOf(me) !== 'all' && (k.user_id === me.id || !(await canManage(env, me, k.user_id)))) return bad('Không có quyền xóa KPI này.', 403);
     await env.DB.prepare('DELETE FROM kpis WHERE id=?1').bind(k.id).run();
     return json({ ok: true });
   }
@@ -1081,7 +1199,8 @@ async function api(req, env, url, me, ctx) {
       mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg), company: cfg.company_name });
   }
   if (p.startsWith('/api/admin/')) {
-    if (me.app_role !== 'admin') return bad('Chỉ Admin được truy cập cài đặt hệ thống.', 403);
+    const act = method === 'GET' ? 'view' : 'edit';
+    if (!can(me, 'settings', act)) return deny('settings', act);
     if (p === '/api/admin/settings' && method === 'GET') {
       const cfg = await getSettings(env);
       const { smtp_pass, ...rest } = cfg;
@@ -1130,12 +1249,10 @@ async function api(req, env, url, me, ctx) {
     return bad('Không tìm thấy.', 404);
   }
   if (p === '/api/surveys' && method === 'GET') {
-    let where = 'r.user_id = ?1', binds = [me.id];
-    if (me.app_role === 'admin') { where = '1'; binds = []; }
-    else if (me.app_role === 'manager') {
-      const ids = [me.id, ...(await subtreeIds(env, me.id))];
-      where = `r.user_id IN (${ids.map(() => '?').join(',')})`; binds = ids;
-    }
+    if (!can(me, 'survey')) return deny('survey', 'view');
+    const ids = await scopeIds(env, me);
+    let where = '1', binds = [];
+    if (ids) { where = `r.user_id IN (${ids.map(() => '?').join(',')})`; binds = ids; }
     const r = await env.DB.prepare(`SELECT r.id, r.template_id, r.title, r.status, r.email_status, r.answers, r.created_at, r.updated_at, r.submitted_at,
         r.user_id, u.name AS user_name FROM survey_responses r JOIN users u ON u.id = r.user_id
         WHERE ${where} ORDER BY r.updated_at DESC LIMIT 300`).bind(...binds).all();
@@ -1144,6 +1261,8 @@ async function api(req, env, url, me, ctx) {
   m = p.match(/^\/api\/surveys(?:\/(\d+))?(\/send)?$/);
   if (m) {
     const id = m[1] ? +m[1] : null, isSend = !!m[2];
+    const sAct = method === 'GET' ? 'view' : method === 'DELETE' ? 'delete' : !id ? 'add' : 'edit';
+    if (!can(me, 'survey', sAct)) return deny('survey', sAct);
     if (!id && method === 'POST') {
       const tpl = getTemplate(body.template_id);
       if (!tpl) return bad('Không tìm thấy mẫu phiếu.');
@@ -1167,7 +1286,7 @@ async function api(req, env, url, me, ctx) {
       return json({ ok: true, ...(await emailSurvey(env, url, row, owner)) });
     }
     if (method === 'PUT') {
-      if (row.user_id !== me.id && me.app_role !== 'admin') return bad('Chỉ người lập phiếu được sửa.', 403);
+      if (row.user_id !== me.id && scopeOf(me) !== 'all') return bad('Chỉ người lập phiếu (hoặc người có phạm vi Toàn công ty) được sửa.', 403);
       const tpl = getTemplate(row.template_id);
       const ans = sanitizeAnswers(tpl, body.answers || {});
       const submit = !!body.submit || row.status === 'submitted';
@@ -1180,13 +1299,18 @@ async function api(req, env, url, me, ctx) {
       return json({ ok: true, id, code: surveyCode(fresh), ...mail });
     }
     if (method === 'DELETE') {
-      if (!(me.app_role === 'admin' || (row.user_id === me.id && row.status === 'draft'))) return bad('Chỉ xóa được phiếu nháp của mình (Admin xóa được mọi phiếu).', 403);
+      if (!(scopeOf(me) === 'all' || (row.user_id === me.id && row.status === 'draft'))) return bad('Chỉ xóa được phiếu nháp của mình (người có phạm vi Toàn công ty xóa được mọi phiếu).', 403);
       await env.DB.prepare('DELETE FROM survey_responses WHERE id=?1').bind(id).run();
       return json({ ok: true });
     }
   }
 
   /* ----- Tài liệu nội bộ (PDF chỉ đọc trong tool, ghi lại lượt xem) ----- */
+  if (p.startsWith('/api/docs')) {                    // tài liệu: Xem / Thêm / Sửa / Xóa theo nhóm quyền
+    const fileUp = /\/file$/.test(p) && method === 'PUT', stats = /\/views$/.test(p);
+    const act = method === 'GET' ? (stats ? 'edit' : 'view') : method === 'DELETE' ? 'delete' : method === 'POST' ? 'add' : fileUp ? (can(me, 'docs', 'add') ? 'add' : 'edit') : 'edit';
+    if (!can(me, 'docs', act)) return deny('docs', act);
+  }
   if (p === '/api/docs' && method === 'GET') {
     const r = await env.DB.prepare(`SELECT d.id, d.title, d.group_name, d.description, d.file_name, d.file_size, d.chunks, d.file_rev,
         d.created_at, d.updated_at, d.file_updated_at, cu.name AS created_by_name, uu.name AS updated_by_name,
@@ -1195,10 +1319,10 @@ async function api(req, env, url, me, ctx) {
         (SELECT MAX(v.viewed_at) FROM doc_views v WHERE v.doc_id = d.id AND v.user_id = ?1) AS my_last_view
       FROM docs d LEFT JOIN users cu ON cu.id = d.created_by LEFT JOIN users uu ON uu.id = d.updated_by
       ORDER BY d.group_name COLLATE NOCASE, d.updated_at DESC`).bind(me.id).all();
-    return json({ docs: r.results, can_manage: me.app_role === 'admin', max_mb: DOC_MAX_MB });
+    return json({ docs: r.results, can_manage: can(me, 'docs', 'add') || can(me, 'docs', 'edit') || can(me, 'docs', 'delete'),
+      can: { add: can(me, 'docs', 'add'), edit: can(me, 'docs', 'edit'), delete: can(me, 'docs', 'delete') }, max_mb: DOC_MAX_MB });
   }
   if (p === '/api/docs' && method === 'POST') {
-    if (me.app_role !== 'admin') return bad('Chỉ Admin được đăng tài liệu.', 403);
     const v = docMeta(body); if (v.error) return bad(v.error);
     const t = now();
     const r = await env.DB.prepare(`INSERT INTO docs (title, group_name, description, created_by, created_at, updated_by, updated_at) VALUES (?1,?2,?3,?4,?5,?4,?5)`)
@@ -1207,7 +1331,6 @@ async function api(req, env, url, me, ctx) {
   }
   m = p.match(/^\/api\/docs\/(\d+)$/);
   if (m && (method === 'PUT' || method === 'DELETE')) {
-    if (me.app_role !== 'admin') return bad('Chỉ Admin được sửa tài liệu.', 403);
     const id = +m[1];
     const d = await env.DB.prepare('SELECT id FROM docs WHERE id=?1').bind(id).first();
     if (!d) return bad('Không tìm thấy tài liệu.', 404);
@@ -1223,7 +1346,6 @@ async function api(req, env, url, me, ctx) {
   }
   m = p.match(/^\/api\/docs\/(\d+)\/file$/);
   if (m && method === 'PUT') {                      // Admin tải lên / thay file PDF (nội dung nhị phân)
-    if (me.app_role !== 'admin') return bad('Chỉ Admin được tải tài liệu lên.', 403);
     const id = +m[1];
     const d = await env.DB.prepare('SELECT id, file_rev FROM docs WHERE id=?1').bind(id).first();
     if (!d) return bad('Không tìm thấy tài liệu.', 404);
@@ -1262,7 +1384,6 @@ async function api(req, env, url, me, ctx) {
   }
   m = p.match(/^\/api\/docs\/(\d+)\/views$/);
   if (m && method === 'GET') {
-    if (me.app_role !== 'admin') return bad('Chỉ Admin xem được thống kê lượt xem.', 403);
     const id = +m[1];
     const [by, recent] = await Promise.all([
       env.DB.prepare(`SELECT u.id, u.name, u.email, COUNT(*) AS views, MIN(v.viewed_at) AS first_at, MAX(v.viewed_at) AS last_at
@@ -1273,13 +1394,14 @@ async function api(req, env, url, me, ctx) {
   }
 
   /* ----- Proposal ----- */
+  if (p.startsWith('/api/proposals')) {
+    const act = method === 'GET' ? 'view' : /\/revoke$/.test(p) ? 'delete' : 'add';
+    if (!can(me, 'proposal', act)) return deny('proposal', act);
+  }
   if (p === '/api/proposals' && method === 'GET') {
-    let where = 's.user_id = ?1', binds = [me.id];
-    if (me.app_role === 'admin') { where = '1'; binds = []; }
-    else if (me.app_role === 'manager') {
-      const ids = [me.id, ...(await subtreeIds(env, me.id))];
-      where = `s.user_id IN (${ids.map(() => '?').join(',')})`; binds = ids;
-    }
+    const ids = await scopeIds(env, me);
+    let where = '1', binds = [];
+    if (ids) { where = `s.user_id IN (${ids.map(() => '?').join(',')})`; binds = ids; }
     const r = await env.DB.prepare(`SELECT s.*, u.name AS user_name FROM proposal_shares s JOIN users u ON u.id = s.user_id
         WHERE ${where} ORDER BY s.created_at DESC LIMIT 300`).bind(...binds).all();
     const cfg = await getSettings(env);
@@ -1312,13 +1434,27 @@ async function api(req, env, url, me, ctx) {
   if (m && method === 'POST') {
     const row = await env.DB.prepare('SELECT s.*, u.name AS user_name, u.email AS user_email, u.contact_email AS user_contact_email FROM proposal_shares s JOIN users u ON u.id=s.user_id WHERE s.id=?1').bind(+m[1]).first();
     if (!row || !(await canSeeShare(env, me, row))) return bad('Không tìm thấy hoặc bạn không có quyền.', 404);
-    if (row.user_id !== me.id && me.app_role !== 'admin') return bad('Chỉ người gửi hoặc Admin được thao tác.', 403);
+    if (row.user_id !== me.id && scopeOf(me) !== 'all') return bad('Chỉ người gửi (hoặc người có phạm vi Toàn công ty) được thao tác.', 403);
     if (m[2] === 'revoke') { await env.DB.prepare('UPDATE proposal_shares SET revoked=1 WHERE id=?1').bind(row.id).run(); return json({ ok: true }); }
     if (row.revoked || row.expires_at < now()) return bad('Đường dẫn đã thu hồi hoặc hết hạn. Hãy tạo lần gửi mới.');
     return json({ ok: true, ...(await emailProposal(env, url, row, { id: row.user_id, name: row.user_name, email: row.user_email, contact_email: row.user_contact_email })) });
   }
 
   return bad('Không tìm thấy.', 404);
+}
+
+// Kiểm tra quyền khi thêm/sửa tài khoản: phạm vi dữ liệu, gán nhóm quyền, bảo vệ tài khoản Admin. Trả về thông báo lỗi hoặc null.
+async function userGroupCheck(env, me, u, v) {
+  const s = scopeOf(me);
+  if (s !== 'all') {
+    if (u && !(await canManage(env, me, u.id))) return 'Nhân viên này nằm ngoài phạm vi quản lý của bạn.';
+    if (s === 'self') return 'Phạm vi dữ liệu của bạn chỉ là bản thân, không thêm/sửa được nhân viên khác.';
+    if (!v.manager_id || (v.manager_id !== me.id && !(await subtreeIds(env, me.id)).has(v.manager_id))) return 'Quản lý trực tiếp phải là bạn hoặc cấp dưới của bạn.';
+  }
+  if ((v.app_role === 'admin' || (u && u.app_role === 'admin')) && me.app_role !== 'admin') return 'Chỉ tài khoản nhóm Admin được tạo/sửa tài khoản Admin.';
+  const changed = u ? v.app_role !== u.app_role : v.app_role !== 'staff';
+  if (changed && !can(me, 'perm', 'edit')) return 'Cần quyền "Sửa" ở mục Phân quyền để gán nhóm quyền cho tài khoản.';
+  return null;
 }
 
 async function validateUser(env, b, selfId) {
@@ -1334,7 +1470,7 @@ async function validateUser(env, b, selfId) {
   if (dept_id && !dept) return { error: 'Phòng ban không tồn tại.' };
   const title = deptTitleKeys(org, dept).includes(b.title) ? b.title : null;
   if (!title) return { error: dept ? `Chức danh không thuộc ${dept.name}. Hãy chọn lại chức danh.` : 'Chức danh không hợp lệ.' };
-  const app_role = APP_ROLES.includes(b.app_role) ? b.app_role : null;
+  const app_role = b.app_role && (await env.DB.prepare('SELECT id FROM perm_groups WHERE id=?1').bind(String(b.app_role)).first()) ? String(b.app_role) : null;
   const salary_w = Math.max(0, Math.round(+b.salary_w || 0));
   // Tỷ lệ lương cơ bản dạng thập phân 0–1 (vd 0.4 = 40%); để trống = theo chức danh
   let cb_ratio = b.cb_ratio === '' || b.cb_ratio == null ? null : +b.cb_ratio;
@@ -1349,7 +1485,7 @@ async function validateUser(env, b, selfId) {
   if (!isEmail(email)) return { error: 'Email không hợp lệ.' };
   if (!name) return { error: 'Chưa nhập họ tên.' };
   if (!title) return { error: 'Chức danh không hợp lệ.' };
-  if (!app_role) return { error: 'Quyền không hợp lệ.' };
+  if (!app_role) return { error: 'Nhóm quyền không hợp lệ.' };
   const dup = await env.DB.prepare('SELECT id FROM users WHERE email=?1').bind(email).first();
   if (dup && dup.id !== selfId) return { error: 'Email này đã có tài khoản.' };
   if (manager_id) {

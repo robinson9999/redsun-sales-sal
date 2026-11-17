@@ -6,6 +6,11 @@
   'use strict';
 
   const ROLE_LABEL = { admin: 'Admin', manager: 'Quản lý', staff: 'Nhân viên' };
+  /* Phân quyền: S.perm = nhóm quyền của tài khoản (ma trận Xem/Thêm/Sửa/Xóa theo mục + phạm vi dữ liệu) */
+  const canDo = (mod, act = 'view') => !!(S.perm && S.perm.perms && (S.perm.perms[mod] || []).includes(act));
+  const isAll = () => !!(S.perm && S.perm.scope === 'all');
+  const isSelf = () => !S.perm || S.perm.scope === 'self';
+  const groupName = (id) => ((S.groups || []).find((g) => g.id === id) || {}).name || ROLE_LABEL[id] || id || '—';
   const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   const S = { me: null, manager: null, titles: {}, depts: [], formulas: {}, users: null, year: new Date().getFullYear(), rendered: {} };
 
@@ -160,13 +165,13 @@
   window.appInit = async function () {
     try {
       const d = await api('/api/me');
-      S.me = d.user; S.manager = d.manager; setOrg(d); S.company = d.company; startIdleWatch(d.idle_minutes);
+      S.me = d.user; S.manager = d.manager; S.perm = d.perm; S.permMeta = d.perm_meta; setOrg(d); S.company = d.company; startIdleWatch(d.idle_minutes);
       document.getElementById('me-name').textContent = S.me.name;
-      document.getElementById('me-role').textContent = `${ROLE_LABEL[S.me.app_role]}${S.me.title !== 'other' ? ' • ' + titleName(S.me.title) : ''}${S.me.dept_id ? ' • ' + deptName(S.me.dept_id) : ''}`;
-      const canAssign = ['admin', 'manager'].includes(S.me.app_role);
-      document.getElementById('tab-btn-assign').classList.toggle('hidden', !canAssign);
-      document.getElementById('tab-btn-staff').classList.toggle('hidden', !canAssign);
-      document.getElementById('tab-btn-settings').classList.toggle('hidden', S.me.app_role !== 'admin');
+      document.getElementById('me-role').textContent = `${S.perm ? S.perm.name : ''}${S.me.title !== 'other' ? ' • ' + titleName(S.me.title) : ''}${S.me.dept_id ? ' • ' + deptName(S.me.dept_id) : ''}`;
+      // Hiện các tab theo quyền Xem của nhóm quyền
+      const TABMOD = { policy: 'policy', calc: 'calc', kpi: 'kpi', survey: 'survey', proposal: 'proposal', docs: 'docs', assign: 'assign', staff: 'staff', perm: 'perm', settings: 'settings' };
+      for (const [tab, mod] of Object.entries(TABMOD)) { const b = document.getElementById('tab-btn-' + tab); if (b) b.classList.toggle('hidden', !canDo(mod, 'view')); }
+      if (canDo('staff') || canDo('perm')) api('/api/perm-groups').then((g) => { S.groups = g.groups; }).catch(() => {});
       switchTab(tabFromHash());
       if (!S.me.must_change) initCalc();
       if (S.me.must_change) openPwModal(true);
@@ -181,7 +186,7 @@
   const cbText = (u) => { const cb = u.cb_ratio != null ? u.cb_ratio : (pOf(u.title).cb || 0); return `${Math.round(cb * 1000) / 10}% CB – ${Math.round((1 - cb) * 1000) / 10}% HS`; };
   async function initCalc() {
     const box = document.getElementById('calc-person-box'), sel = document.getElementById('calc-person');
-    const canMgr = ['admin', 'manager'].includes(S.me.app_role), admin = S.me.app_role === 'admin';
+    const canMgr = !isSelf(), admin = isAll();
     let people = ROLES[S.me.title] ? [S.me] : [];
     if (canMgr) { try { people = people.concat((await loadUsers()).filter((u) => u.active && u.id !== S.me.id && ROLES[u.title])); } catch (e) { /* bỏ qua */ } }
     C.people = people; C.ready = true;
@@ -235,7 +240,73 @@
     if (t === 'settings') renderSettings();
     if (t === 'assign') renderAssign();
     if (t === 'staff') renderStaff(true);
+    if (t === 'perm') renderPerm();
   };
+
+  /* =========================================================================
+     TRANG: PHÂN QUYỀN – nhóm quyền = ma trận Xem/Thêm/Sửa/Xóa theo mục + phạm vi dữ liệu
+     ========================================================================= */
+  const PM = { sel: null };
+  async function renderPerm() {
+    const el = document.getElementById('tab-perm');
+    el.innerHTML = loading;
+    let d;
+    try { d = await api('/api/perm-groups'); } catch (e) { el.innerHTML = errorCard(e.message); return; }
+    S.groups = d.groups;
+    const meta = d.meta, A = Object.keys(meta.actions), edit = canDo('perm', 'edit');
+    if (!PM.sel || !d.groups.find((g) => g.id === PM.sel)) PM.sel = (d.groups.find((g) => g.id === 'manager') || d.groups[0]).id;
+    const g = d.groups.find((x) => x.id === PM.sel), ro = !edit || g.locked;
+    const groupList = d.groups.map((x) => `<button data-g="${x.id}" class="w-full text-left px-3 py-2.5 rounded-xl border ${x.id === PM.sel ? 'border-redsun-600 bg-redsun-50' : 'border-slate-200 hover:bg-slate-50'}">
+        <b class="text-sm text-slate-900">${esc(x.name)}</b>${x.builtin ? ' <span class="text-[10px] px-1.5 rounded bg-slate-100 text-slate-500">gốc</span>' : ''}
+        <span class="block text-[11px] text-slate-500">${esc(meta.scopes[x.scope])} • ${x.users} tài khoản</span></button>`).join('');
+    const rows = Object.entries(meta.modules).map(([mk, m]) => `<tr class="hover:bg-slate-50"><td class="py-2 px-3"><b class="text-slate-900">${esc(m.name)}</b>
+        <span class="block text-[11px] text-slate-500">${Object.entries(m.acts).map(([a, l]) => `${meta.actions[a]}: ${esc(l)}`).join(' • ')}</span></td>
+        ${A.map((a) => `<td class="py-2 px-3 text-center">${a in m.acts ? `<input type="checkbox" data-m="${mk}" data-a="${a}" class="w-4 h-4 accent-red-700" ${(g.perms[mk] || []).includes(a) ? 'checked' : ''} ${ro ? 'disabled' : ''}>` : '<span class="text-slate-300">—</span>'}</td>`).join('')}
+        <td class="py-2 px-3 text-right">${ro ? '' : `<button data-row="${mk}" class="text-[11px] text-slate-500 hover:underline">tất cả</button>`}</td></tr>`).join('');
+    el.innerHTML = pageHead('Phân quyền', 'Mỗi tài khoản thuộc một nhóm quyền. Nhóm quyền quy định được Xem / Thêm / Sửa / Xóa ở từng mục và phạm vi dữ liệu được thao tác.',
+        canDo('perm', 'add') ? `<div class="flex gap-2"><input id="pm-new" maxlength="80" placeholder="Tên nhóm mới, vd: Kế toán" class="${inputCls} sm:w-56"><button id="pm-add" class="${BTN_P} whitespace-nowrap">＋ Tạo nhóm</button></div>` : '')
+      + `<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div class="lg:col-span-3 space-y-2">${groupList}<p class="text-[11px] text-slate-500 px-1 pt-2">Đổi nhóm quyền của từng người ở tab <b>Nhân viên</b> → Sửa → <b>Nhóm quyền</b>.</p></div>
+        <div class="lg:col-span-9">${card(`<div class="p-5 space-y-4">
+          ${errBox('pm-err')}
+          ${g.locked ? '<div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">Nhóm <b>Admin</b> luôn có toàn quyền trên mọi mục để hệ thống luôn có người quản trị; không sửa được.</div>' : ''}
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">${field('Tên nhóm quyền', `<input id="pm-name" maxlength="80" value="${esc(g.name)}" class="${inputCls}" ${ro ? 'disabled' : ''}>`)}
+            ${field('Mô tả', `<input id="pm-desc" maxlength="300" value="${esc(g.description || '')}" class="${inputCls}" ${ro ? 'disabled' : ''}>`)}</div>
+          <div><span class="block text-xs font-bold text-slate-600 mb-1">Phạm vi dữ liệu</span><div class="flex flex-wrap gap-2">${Object.entries(meta.scopes).map(([k, l]) => `<label class="flex items-center gap-2 px-3 py-2 rounded-xl border ${g.scope === k ? 'border-redsun-600 bg-redsun-50' : 'border-slate-200'} text-sm cursor-pointer">
+              <input type="radio" name="pm-scope" value="${k}" ${g.scope === k ? 'checked' : ''} ${ro ? 'disabled' : ''}> ${esc(l)}</label>`).join('')}</div>
+            <p class="text-[11px] text-slate-500 mt-1">Áp dụng cho dữ liệu nhân viên, KPI, phiếu khảo sát, proposal: <b>Toàn công ty</b> – mọi người; <b>Bản thân & cấp dưới</b> – mình và người mình quản lý (trực tiếp, gián tiếp); <b>Chỉ bản thân</b>.</p></div>
+          <div class="overflow-x-auto border border-slate-200 rounded-xl"><table class="w-full text-sm"><thead class="bg-slate-50 text-[11px] uppercase text-slate-500"><tr><th class="py-2 px-3 text-left">Mục</th>
+            ${A.map((a) => `<th class="py-2 px-3 text-center w-16">${esc(meta.actions[a])}${ro ? '' : `<br><button data-col="${a}" class="normal-case font-normal text-[10px] text-slate-500 hover:underline">tất cả</button>`}</th>`).join('')}<th></th></tr></thead>
+            <tbody class="divide-y divide-slate-100">${rows}</tbody></table></div>
+          <p class="text-[11px] text-slate-500">Có Thêm/Sửa/Xóa thì tự có Xem. Tab chỉ hiện với người có quyền Xem mục đó.</p>
+          <div class="flex flex-wrap justify-between gap-2"><span>${!g.builtin && canDo('perm', 'delete') ? `<button id="pm-del" class="${BTN_S}">Xóa nhóm</button>` : ''}</span>
+            <span class="flex gap-2">${canDo('perm', 'add') ? `<button id="pm-copy" class="${BTN_S}">Nhân bản nhóm</button>` : ''}${ro ? '' : `<button id="pm-save" class="${BTN_P}">Lưu nhóm quyền</button>`}</span></div>
+        </div>`)}</div></div>`;
+    el.querySelectorAll('[data-g]').forEach((b) => b.onclick = () => { PM.sel = b.dataset.g; renderPerm(); });
+    const boxes = () => [...el.querySelectorAll('[data-m]')];
+    // Tick Thêm/Sửa/Xóa thì tự tick Xem; bỏ Xem thì bỏ hết hàng đó
+    boxes().forEach((c) => c.onchange = () => {
+      const row = boxes().filter((x) => x.dataset.m === c.dataset.m);
+      if (c.checked && c.dataset.a !== 'view') row.filter((x) => x.dataset.a === 'view').forEach((x) => { x.checked = true; });
+      if (!c.checked && c.dataset.a === 'view') row.forEach((x) => { x.checked = false; });
+    });
+    el.querySelectorAll('[data-row]').forEach((b) => b.onclick = () => { const r = boxes().filter((x) => x.dataset.m === b.dataset.row), on = !r.every((x) => x.checked); r.forEach((x) => { x.checked = on; }); });
+    el.querySelectorAll('[data-col]').forEach((b) => b.onclick = () => { const c = boxes().filter((x) => x.dataset.a === b.dataset.col), on = !c.every((x) => x.checked);
+      c.forEach((x) => { x.checked = on; if (on) boxes().filter((y) => y.dataset.m === x.dataset.m && y.dataset.a === 'view').forEach((y) => { y.checked = true; }); }); });
+    const collect = () => {
+      const perms = {}; boxes().forEach((c) => { if (c.checked) (perms[c.dataset.m] = perms[c.dataset.m] || []).push(c.dataset.a); });
+      return { name: document.getElementById('pm-name').value, description: document.getElementById('pm-desc').value, scope: (el.querySelector('[name=pm-scope]:checked') || {}).value, perms };
+    };
+    const run = async (fn) => { try { await fn(); await renderPerm(); } catch (e) { showErr('pm-err', e.message); } };
+    const x = (id) => document.getElementById(id);
+    if (x('pm-save')) x('pm-save').onclick = () => run(async () => {
+      await api('/api/perm-groups/' + g.id, { method: 'PUT', body: collect() });
+      if (g.id === S.me.app_role) location.reload();                 // đổi quyền của chính nhóm mình: tải lại để áp dụng
+    });
+    if (x('pm-add')) x('pm-add').onclick = () => run(async () => { const r = await api('/api/perm-groups', { method: 'POST', body: { name: x('pm-new').value } }); PM.sel = r.id; });
+    if (x('pm-copy')) x('pm-copy').onclick = () => { const name = prompt('Tên nhóm quyền mới:', g.name + ' (bản sao)'); if (name) run(async () => { const r = await api('/api/perm-groups', { method: 'POST', body: { name, from: g.id } }); PM.sel = r.id; }); };
+    if (x('pm-del')) x('pm-del').onclick = () => { if (confirm(`Xóa nhóm quyền "${g.name}"?`)) run(async () => { await api('/api/perm-groups/' + g.id, { method: 'DELETE' }); PM.sel = null; }); };
+  }
 
   async function loadUsers(force) {
     if (S.users && !force) return S.users;
@@ -349,9 +420,9 @@
     const el = document.getElementById('tab-assign');
     if (!S.rendered.assign) el.innerHTML = loading;
     try {
-      const users = (await loadUsers(true)).filter((u) => u.active && hasKpi(u) && (S.me.app_role === 'admin' || u.id !== S.me.id));
+      const users = (await loadUsers(true)).filter((u) => u.active && hasKpi(u) && (isAll() || u.id !== S.me.id));
       S.rendered.assign = true;
-      el.innerHTML = pageHead('Giao KPI', S.me.app_role === 'admin' ? 'Giao chỉ tiêu cho bất kỳ nhân viên nào.' : 'Giao chỉ tiêu cho nhân viên thuộc quyền quản lý của bạn.')
+      el.innerHTML = pageHead('Giao KPI', isAll() ? 'Giao chỉ tiêu cho bất kỳ nhân viên nào.' : 'Giao chỉ tiêu cho nhân viên thuộc quyền quản lý của bạn.')
         + `<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div class="lg:col-span-5">${card(`<div class="p-5">
             <h3 class="font-bold text-slate-900 mb-1">1. Chọn nhân viên</h3>
@@ -460,7 +531,7 @@
         try {
           const d = await api(`/api/kpis?year=${A.year}`);
           existing.clear(); d.kpis.forEach((k) => existing.set(k.user_id + '-' + k.month, k));
-          const mine = d.kpis.filter((k) => S.me.app_role === 'admin' || k.user_id !== S.me.id);
+          const mine = d.kpis.filter((k) => isAll() || k.user_id !== S.me.id);
           const f = A.listFilter.toLowerCase();
           const shown = mine.filter((k) => !f || (k.name + ' ' + k.email).toLowerCase().includes(f));
           box.innerHTML = card(`<div class="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -496,37 +567,38 @@
     try {
       const users = await loadUsers(force);
       S.rendered.staff = true;
-      const admin = S.me.app_role === 'admin';
+      const admin = isAll(), cAdd = canDo('staff', 'add'), cEdit = canDo('staff', 'edit'), cOrg = canDo('org'), cPerm = canDo('perm');
       const byId = Object.fromEntries(users.map((u) => [u.id, u]));
       const mgrName = (id) => id === S.me.id ? esc(S.me.name) + ' (bạn)' : (byId[id] ? esc(byId[id].name) : '—');
       const q = ST.q.toLowerCase();
       const rows = users.filter((u) => (ST.showInactive || u.active) && (!ST.dept || (ST.dept === '_none' ? !u.dept_id : u.dept_id === ST.dept)) && (!q || (u.name + ' ' + u.email).toLowerCase().includes(q)));
       el.innerHTML = pageHead('Nhân viên', admin ? 'Toàn bộ tài khoản trong hệ thống.' : 'Nhân viên thuộc quyền quản lý của bạn (trực tiếp và gián tiếp).',
-          admin ? `<div class="flex flex-wrap gap-2"><button id="st-org" class="${BTN_S}">🏢 Phòng ban & chức danh</button><button id="st-formula" class="${BTN_S}">🧮 Công thức lương</button><button id="st-import" class="${BTN_S}">⇪ Nhập từ file CSV</button><button id="st-add" class="${BTN_P}">＋ Thêm nhân viên</button></div>` : '')
+          `<div class="flex flex-wrap gap-2">${cOrg ? `<button id="st-org" class="${BTN_S}">🏢 Phòng ban & chức danh</button><button id="st-formula" class="${BTN_S}">🧮 Công thức lương</button>` : ''}${cPerm ? `<button id="st-perm" class="${BTN_S}">🔐 Phân quyền</button>` : ''}${cAdd && admin ? `<button id="st-import" class="${BTN_S}">⇪ Nhập từ file CSV</button>` : ''}${cAdd && !isSelf() ? `<button id="st-add" class="${BTN_P}">＋ Thêm nhân viên</button>` : ''}</div>`)
         + card(`<div class="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
             <div class="flex flex-col sm:flex-row gap-2"><input id="st-q" placeholder="Tìm tên hoặc email…" value="${esc(ST.q)}" class="${inputCls} sm:w-64">
               <select id="st-dept" class="${inputCls} sm:w-56"><option value="">Mọi phòng ban</option>${S.depts.map((d) => `<option value="${d.id}" ${ST.dept === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}<option value="_none" ${ST.dept === '_none' ? 'selected' : ''}>Chưa phân phòng</option></select></div>
             <div class="flex items-center gap-4 text-sm text-slate-600"><span>${rows.length} người</span>
             <label class="flex items-center gap-2"><input type="checkbox" id="st-inactive" ${ST.showInactive ? 'checked' : ''}> Hiện cả tài khoản đã khóa</label></div></div>
           <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-slate-50 text-[11px] uppercase text-slate-500"><tr>
-            <th class="py-2.5 px-3 text-left">Nhân viên</th><th class="py-2.5 px-3 text-left">Phòng ban • Chức danh</th><th class="py-2.5 px-3 text-left">Quyền</th>
+            <th class="py-2.5 px-3 text-left">Nhân viên</th><th class="py-2.5 px-3 text-left">Phòng ban • Chức danh</th><th class="py-2.5 px-3 text-left">Nhóm quyền</th>
             <th class="py-2.5 px-3 text-left">Quản lý trực tiếp</th><th class="py-2.5 px-3 text-right">Lương W • Cơ cấu</th><th class="py-2.5 px-3 text-left">Trạng thái</th><th></th></tr></thead>
             <tbody class="divide-y divide-slate-100">${rows.length ? rows.map((u) => `<tr class="${u.active ? '' : 'opacity-50'}">
               <td class="py-2.5 px-3"><b class="text-slate-900">${esc(u.name)}</b><br><span class="text-[11px] text-slate-500">${esc(u.email)}</span></td>
               <td class="py-2.5 px-3"><span class="text-[11px] font-bold ${u.dept_id ? 'text-redsun-700' : 'text-slate-400'}">${esc(deptName(u.dept_id))}</span><br>${esc(titleName(u.title))}</td>
-              <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded-full text-[11px] font-bold ${u.app_role === 'admin' ? 'bg-redsun-100 text-redsun-800' : u.app_role === 'manager' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}">${ROLE_LABEL[u.app_role]}</span></td>
+              <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded-full text-[11px] font-bold ${u.app_role === 'admin' ? 'bg-redsun-100 text-redsun-800' : u.app_role === 'manager' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}">${esc(groupName(u.app_role))}</span></td>
               <td class="py-2.5 px-3">${u.manager_id ? mgrName(u.manager_id) : '—'}</td>
               <td class="py-2.5 px-3 text-right"><span class="font-mono">${u.salary_w ? fmt(u.salary_w) : '—'}</span>${u.salary_w && pOf(u.title).cb != null && pOf(u.title).type !== 'ctv' ? `<br><span class="text-[11px] text-slate-500">${cbText(u)}</span>` : ''}</td>
               <td class="py-2.5 px-3 text-xs">${!u.active ? 'Đã khóa' : u.must_change ? '<span class="text-amber-700">Chưa đổi mật khẩu tạm</span>' : '<span class="text-emerald-700">Đang hoạt động</span>'}</td>
               <td class="py-2.5 px-3 text-right whitespace-nowrap">
-                ${u.active && hasKpi(u) && (admin || u.id !== S.me.id) ? `<button data-kpi="${u.id}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Giao KPI</button>` : ''}
-                ${admin ? `<button data-edit="${u.id}" class="text-xs font-bold text-slate-700 hover:underline mr-2">Sửa</button><button data-reset="${u.id}" class="text-xs text-slate-500 hover:underline">Cấp lại MK</button>` : ''}
+                ${u.active && hasKpi(u) && canDo('assign', 'add') && (admin || u.id !== S.me.id) ? `<button data-kpi="${u.id}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Giao KPI</button>` : ''}
+                ${cEdit && (admin || u.id !== S.me.id) && (u.app_role !== 'admin' || S.me.app_role === 'admin') ? `<button data-edit="${u.id}" class="text-xs font-bold text-slate-700 hover:underline mr-2">Sửa</button><button data-reset="${u.id}" class="text-xs text-slate-500 hover:underline">Cấp lại MK</button>` : ''}
               </td></tr>`).join('') : '<tr><td colspan="7" class="py-8 text-center text-slate-400">Chưa có nhân viên nào.</td></tr>'}</tbody></table></div>`);
       const qi = document.getElementById('st-q');
       qi.oninput = (e) => { ST.q = e.target.value; const p = e.target.selectionStart; renderStaff().then(() => { const i = document.getElementById('st-q'); i.focus(); i.setSelectionRange(p, p); }); };
       document.getElementById('st-inactive').onchange = (e) => { ST.showInactive = e.target.checked; renderStaff(); };
       document.getElementById('st-dept').onchange = (e) => { ST.dept = e.target.value; renderStaff(); };
-      if (admin) { document.getElementById('st-add').onclick = () => userForm(null, users); document.getElementById('st-import').onclick = importCsv; document.getElementById('st-org').onclick = () => orgManager('dept'); document.getElementById('st-formula').onclick = () => orgManager('formula'); }
+      const on = (id, fn) => { const x = document.getElementById(id); if (x) x.onclick = fn; };
+      on('st-add', () => userForm(null, users)); on('st-import', importCsv); on('st-org', () => orgManager('dept')); on('st-formula', () => orgManager('formula')); on('st-perm', () => switchTab('perm'));
       el.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => userForm(byId[+b.dataset.edit], users));
       el.querySelectorAll('[data-reset]').forEach((b) => b.onclick = () => resetPw(byId[+b.dataset.reset]));
       el.querySelectorAll('[data-kpi]').forEach((b) => b.onclick = () => { A.sel = new Set([+b.dataset.kpi]); S.rendered.assign = false; switchTab('assign'); });
@@ -549,10 +621,10 @@
         ${field('Phòng ban', `<select id="uf-dept" class="${inputCls}">${S.depts.filter((d) => d.active || d.id === u.dept_id).map((d) => `<option value="${d.id}" ${u.dept_id === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}<option value="" ${!u.dept_id ? 'selected' : ''}>— Chưa phân phòng (chức danh Khác) —</option></select>`)}
         ${field('Chức danh', `<select id="uf-title" class="${inputCls}"></select>`, '<span id="uf-thint"></span>')}
         <div class="sm:col-span-2 p-3 rounded-xl border text-xs" id="uf-formula"></div>
-        ${field('Quyền trên hệ thống', `<select id="uf-role" class="${inputCls}">${Object.entries(ROLE_LABEL).map(([k, v]) => `<option value="${k}" ${u.app_role === k ? 'selected' : ''}>${v}</option>`).join('')}</select>`, 'Admin: toàn quyền • Quản lý: xem & giao KPI cho cấp dưới • Nhân viên: chỉ xem của mình')}
+        ${field('Nhóm quyền', `<select id="uf-role" class="${inputCls}" ${canDo('perm', 'edit') ? '' : 'disabled'}>${(S.groups || [{ id: 'admin', name: 'Admin' }, { id: 'manager', name: 'Quản lý' }, { id: 'staff', name: 'Nhân viên' }]).filter((g) => g.id !== 'admin' || S.me.app_role === 'admin' || u.app_role === 'admin').map((g) => `<option value="${g.id}" ${u.app_role === g.id ? 'selected' : ''}>${esc(g.name)}${g.scope ? ' • ' + esc((S.permMeta.scopes || {})[g.scope] || '') : ''}</option>`).join('')}</select>`, canDo('perm', 'edit') ? 'Quyền Xem/Thêm/Sửa/Xóa từng mục theo nhóm. Cấu hình ở tab 🔐 Phân quyền.' : 'Cần quyền Sửa mục Phân quyền để đổi nhóm.')}
         ${field('Quản lý trực tiếp', `<select id="uf-mgr" class="${inputCls}"><option value="">— Không có —</option>${mgrOpts}</select>`)}
         ${field('Tổng lương thỏa thuận W (VNĐ)', `<input id="uf-w" inputmode="numeric" value="${u.salary_w ? fmt(u.salary_w) : ''}" class="${inputCls}">`, `<span id="uf-range">${range(u.title)}</span>`)}
-        <div id="uf-cb-box">${field('Tỷ lệ lương cơ bản (%)', `<div class="flex items-center gap-2"><input id="uf-cb" type="number" min="0" max="100" step="1" value="${u.cb_ratio != null ? Math.round(u.cb_ratio * 1000) / 10 : ''}" class="${inputCls}"><span class="text-xs text-slate-500 whitespace-nowrap">CB / <b id="uf-hs"></b> HS</span></div>`, 'Để trống: theo chức danh (quản lý 40%, nhân viên 50%).')}</div>
+        <div id="uf-cb-box">${field('Tỷ lệ lương cơ bản (%)', `<div class="flex items-center gap-2"><input id="uf-cb" type="number" min="0" max="100" step="1" value="${u.cb_ratio != null ? Math.round(u.cb_ratio * 1000) / 10 : ''}" class="${inputCls}"><span class="text-xs text-slate-500 whitespace-nowrap">CB / <b id="uf-hs"></b> HS</span></div>`, 'Để trống: theo tham số của chức danh.')}</div>
         <div class="sm:col-span-2 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600" id="uf-split"></div>
         ${field('Ngày vào làm', `<input id="uf-start" type="date" value="${esc(u.start_date || '')}" class="${inputCls}">`)}
         ${isNew ? '' : field('Trạng thái', `<select id="uf-active" class="${inputCls}"><option value="1" ${u.active ? 'selected' : ''}>Đang hoạt động</option><option value="0" ${u.active ? '' : 'selected'}>Khóa tài khoản</option></select>`)}
@@ -577,7 +649,7 @@
       document.getElementById('uf-range').textContent = !pr ? 'Lưu để tham khảo; chức danh chưa có công thức tính.' : pr.type === 'ctv' ? 'Không áp dụng lương cố định' : `Khung ${rng(pr.min, pr.max)}`;
       document.getElementById('uf-cb-box').classList.toggle('hidden', !fixedPay || pr.cb == null);
       document.getElementById('uf-split').classList.toggle('hidden', !pr);
-      if (isNew && rSel.value !== 'admin') rSel.value = isMgrTitle(tSel.value) ? 'manager' : 'staff';
+      if (isNew && !rSel.disabled && ['manager', 'staff'].includes(rSel.value)) rSel.value = isMgrTitle(tSel.value) ? 'manager' : 'staff';
     };
     tSel.onchange = onTitle; dSel.onchange = fillTitles;
     const wIn = document.getElementById('uf-w'), cbIn = document.getElementById('uf-cb');
@@ -1025,7 +1097,7 @@
     try {
       const [d, st] = await Promise.all([api('/api/surveys'), api('/api/settings/survey')]);
       SV.list = d.surveys; SV.settings = st;
-      const admin = S.me.app_role === 'admin', many = S.me.app_role !== 'staff';
+      const admin = isAll(), many = !isSelf();
       const mailOk = st.mail_ready;
       const toSettings = admin ? ' <button data-go-settings class="font-bold underline">Mở Cài đặt</button>' : ' Vui lòng báo Admin.';
       const mailInfo = !mailOk
@@ -1034,7 +1106,7 @@
       const tplCards = SV.lib.TEMPLATES.map((t) => card(`<div class="p-5 flex flex-col h-full">
           <div class="text-3xl">${t.icon}</div><h3 class="font-extrabold text-slate-900 mt-2">${esc(t.name)}</h3>
           <p class="text-sm text-slate-500 mt-1 flex-grow">${esc(t.description)}</p>
-          <button data-start="${t.id}" class="${BTN_P} mt-4 self-start">Bắt đầu điền phiếu →</button></div>`)).join('');
+          ${canDo('survey', 'add') ? `<button data-start="${t.id}" class="${BTN_P} mt-4 self-start">Bắt đầu điền phiếu →</button>` : ''}</div>`)).join('');
       el.innerHTML = pageHead('Phiếu khảo sát dự án', 'Chọn phiếu, điền cùng khách hàng; kết quả được lưu, gửi email và xuất PDF.')
         + `<div class="space-y-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${tplCards}</div>${mailInfo}
           ${card(`<div class="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1053,8 +1125,8 @@
             <td class="py-2.5 px-3"><b class="text-slate-900">${esc(r.title)}</b><br><span class="text-[11px] text-slate-500">${esc([r.answers.a_lien_he, r.answers.a_dien_thoai].filter(Boolean).join(' • '))}</span></td>
             <td class="py-2.5 px-3 text-xs">${esc(t ? t.short : r.template_id)}</td>${many ? `<td class="py-2.5 px-3 text-xs">${esc(r.user_name)}</td>` : ''}
             <td class="py-2.5 px-3">${pill(svStatus(r))}</td><td class="py-2.5 px-3 text-xs text-slate-500">${fmtDate(r.updated_at)}</td>
-            <td class="py-2.5 px-3 text-right whitespace-nowrap">${r.status === 'draft' && (mine || admin) ? `<button data-open="${r.id}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Tiếp tục điền</button>` : `<button data-view="${r.id}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Xem</button>`}
-              ${(r.status === 'draft' && mine) || admin ? `<button data-del="${r.id}" class="text-xs text-slate-500 hover:underline">Xóa</button>` : ''}</td></tr>`;
+            <td class="py-2.5 px-3 text-right whitespace-nowrap">${r.status === 'draft' && (mine || admin) && canDo('survey', 'edit') ? `<button data-open="${r.id}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Tiếp tục điền</button>` : `<button data-view="${r.id}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Xem</button>`}
+              ${((r.status === 'draft' && mine) || admin) && canDo('survey', 'delete') ? `<button data-del="${r.id}" class="text-xs text-slate-500 hover:underline">Xóa</button>` : ''}</td></tr>`;
         }).join('') : `<tr><td colspan="7" class="py-8 text-center text-slate-400">${SV.list.length ? 'Không có phiếu phù hợp.' : 'Chưa có phiếu nào. Chọn một mẫu phiếu ở trên để bắt đầu.'}</td></tr>`;
         el.querySelectorAll('[data-open]').forEach((b) => b.onclick = () => openSurvey(+b.dataset.open, 'fill'));
         el.querySelectorAll('[data-view]').forEach((b) => b.onclick = () => openSurvey(+b.dataset.view, 'result'));
@@ -1212,7 +1284,7 @@
   /* ---------- Kết quả ---------- */
   function renderResult() {
     const el = svEl(), r = SV.cur, tpl = SV.tpl;
-    const canEdit = r.user_id === S.me.id || S.me.app_role === 'admin';
+    const canEdit = canDo('survey', 'edit') && (r.user_id === S.me.id || isAll());
     const meta = { sales: r.user_name, submitted: r.submitted_at ? new Date(r.submitted_at * 1000).toLocaleString('vi-VN', { hour12: false }) : '', code: r.code };
     const [st] = svStatus(r);
     const mailBox = r.email_status === 'sent' || r.email_status === 'sent_test'
@@ -1260,7 +1332,7 @@
   };
   async function renderSettings() {
     const el = document.getElementById('tab-settings');
-    if (S.me.app_role !== 'admin') { el.innerHTML = errorCard('Chỉ Admin được truy cập cài đặt hệ thống.'); return; }
+    if (!canDo('settings')) { el.innerHTML = errorCard('Bạn không có quyền xem cài đặt hệ thống.'); return; }
     el.innerHTML = loading;
     try {
       const d = await api('/api/admin/settings');
@@ -1380,7 +1452,7 @@
     const el = prEl(); el.innerHTML = loading;
     try {
       const d = await api('/api/proposals'); PR.data = d;
-      const me = prMe(), many = S.me.app_role !== 'staff';
+      const me = prMe(), many = !isSelf();
       const mailNote = d.mail_ready ? '' : `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Hệ thống <b>chưa cấu hình máy chủ gửi email (SMTP)</b>. Bạn vẫn tạo được đường dẫn để gửi khách qua Zalo/email riêng; gửi email trực tiếp dùng được sau khi Admin cấu hình.</div>`;
       const cards = d.proposals.map((p) => card(`<div class="p-5 flex flex-col h-full">
           <div class="h-1.5 w-12 rounded-full bg-redsun-700 mb-3"></div>
@@ -1390,15 +1462,15 @@
           <div class="flex flex-wrap gap-2 mt-4">
             <button data-present="${p.id}" class="${BTN_S}">▶ Trình chiếu</button>
             <button data-pdf="${p.id}" class="${BTN_S}">⬇ Xuất PDF</button>
-            <button data-send="${p.id}" class="${BTN_P}">✉ Gửi khách hàng</button>
+            ${canDo('proposal', 'add') ? `<button data-send="${p.id}" class="${BTN_P}">✉ Gửi khách hàng</button>` : ''}
           </div></div>`)).join('');
       const meCard = `<div class="p-3 rounded-xl ${me.sdt ? 'bg-slate-50 border border-slate-200 text-slate-600' : 'bg-amber-50 border border-amber-200 text-amber-900'} text-sm">
           Slide cuối và chữ ký email dùng thông tin trong hồ sơ của bạn: <b>${esc([me.tv, me.cv, me.sdt, me.email].filter(Boolean).join(' • '))}</b>.
-          ${me.sdt ? '' : '<b>Hồ sơ chưa có số điện thoại.</b> '}${S.me.app_role === 'admin' ? 'Sửa ở tab Nhân viên.' : 'Cần sửa, vui lòng báo Admin cập nhật ở tab Nhân viên.'}</div>`;
+          ${me.sdt ? '' : '<b>Hồ sơ chưa có số điện thoại.</b> '}${canDo('staff', 'edit') ? 'Sửa ở tab Nhân viên.' : 'Cần sửa, vui lòng báo Admin cập nhật ở tab Nhân viên.'}</div>`;
       el.innerHTML = pageHead('Proposal', 'Trình chiếu có ghi chú cho Sales. Bản PDF và bản gửi khách luôn bỏ phần ghi chú.')
         + `<div class="space-y-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${cards}</div>${meCard}${mailNote}
           ${card(`<div class="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div><h3 class="font-bold text-slate-900">Proposal đã gửi</h3><p class="text-xs text-slate-500">${d.shares.length} lần gửi${many ? (S.me.app_role === 'admin' ? ' (toàn công ty)' : ' (của bạn và nhân viên dưới quyền)') : ''} • lượt xem tính khi khách mở đường dẫn</p></div>
+              <div><h3 class="font-bold text-slate-900">Proposal đã gửi</h3><p class="text-xs text-slate-500">${d.shares.length} lần gửi${many ? (isAll() ? ' (toàn công ty)' : ' (của bạn và nhân viên dưới quyền)') : ''} • lượt xem tính khi khách mở đường dẫn</p></div>
               <input id="pr-q" placeholder="Tìm khách hàng, email…" value="${esc(PR.q)}" class="${inputCls} sm:w-72"></div>
             <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-slate-50 text-[11px] uppercase text-slate-500"><tr>
               <th class="py-2.5 px-3 text-left">Khách hàng</th><th class="py-2.5 px-3 text-left">Proposal</th>${many ? '<th class="py-2.5 px-3 text-left">Sales</th>' : ''}
@@ -1411,7 +1483,7 @@
         const q = PR.q.toLowerCase();
         const rows = d.shares.filter((s) => !q || [s.customer_company, s.customer_name, s.customer_email, s.user_name].join(' ').toLowerCase().includes(q));
         document.getElementById('pr-rows').innerHTML = rows.length ? rows.map((s) => {
-          const mine = s.user_id === S.me.id, can = mine || S.me.app_role === 'admin', live = !s.revoked && !s.expired;
+          const mine = s.user_id === S.me.id, can = (mine || isAll()) && canDo('proposal', 'add'), live = !s.revoked && !s.expired;
           return `<tr><td class="py-2.5 px-3"><b class="text-slate-900">${esc(s.customer_company)}</b><br><span class="text-[11px] text-slate-500">${esc([s.customer_name, s.customer_email].filter(Boolean).join(' • ') || 'Chỉ tạo đường dẫn')}</span></td>
             <td class="py-2.5 px-3 text-xs">${esc(s.proposal_title)}<br><span class="text-slate-400">${fmtDT(s.created_at)}</span></td>
             ${many ? `<td class="py-2.5 px-3 text-xs">${esc(s.user_name)}</td>` : ''}
@@ -1420,7 +1492,7 @@
             <td class="py-2.5 px-3 text-xs text-slate-500">${fmtDate(s.expires_at)}</td>
             <td class="py-2.5 px-3 text-right whitespace-nowrap">${live ? `<button data-copy="${esc(s.link)}" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Sao chép link</button><a href="${esc(s.link)}" target="_blank" rel="noopener" class="text-xs font-bold text-redsun-700 hover:underline mr-2">Mở</a>` : ''}
               ${live && can && s.customer_email ? `<button data-resend="${s.id}" class="text-xs text-slate-600 hover:underline mr-2">Gửi lại</button>` : ''}
-              ${live && can ? `<button data-revoke="${s.id}" class="text-xs text-slate-500 hover:underline">Thu hồi</button>` : ''}</td></tr>`;
+              ${live && (mine || isAll()) && canDo('proposal', 'delete') ? `<button data-revoke="${s.id}" class="text-xs text-slate-500 hover:underline">Thu hồi</button>` : ''}</td></tr>`;
         }).join('') : `<tr><td colspan="7" class="py-8 text-center text-slate-400">${d.shares.length ? 'Không có kết quả phù hợp.' : 'Chưa gửi proposal nào. Bấm "Gửi khách hàng" ở trên để bắt đầu.'}</td></tr>`;
         el.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => copyText(b.dataset.copy, b));
         el.querySelectorAll('[data-resend]').forEach((b) => b.onclick = async () => {
@@ -1562,7 +1634,7 @@
       const groups = [...new Set(d.docs.map((x) => x.group_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
       if (DOC.group && !groups.includes(DOC.group)) DOC.group = '';
       el.innerHTML = pageHead('Tài liệu nội bộ', 'Chỉ đọc trong tool, không tải về. Mỗi lần mở tài liệu đều được ghi lại.',
-          d.can_manage ? `<button id="doc-add" class="${BTN_P}">＋ Đăng tài liệu</button>` : '')
+          d.can && d.can.add ? `<button id="doc-add" class="${BTN_P}">＋ Đăng tài liệu</button>` : '')
         + `<div class="flex flex-col sm:flex-row gap-3 mb-5">
             <input id="doc-q" value="${esc(DOC.q)}" placeholder="Tìm tên, mô tả tài liệu…" class="${inputCls} sm:max-w-sm">
             <select id="doc-g" class="${inputCls} sm:max-w-xs"><option value="">Tất cả nhóm (${d.docs.length})</option>${groups.map((g) => `<option ${g === DOC.group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
@@ -1596,7 +1668,7 @@
               ${x.chunks ? ` • ${fmtSize(x.file_size)}` : ' • <span class="text-redsun-700 font-semibold">chưa có file</span>'} • 👁 ${x.views} lượt xem${x.viewers ? ` (${x.viewers} người)` : ''}</p>
             <div class="flex flex-wrap gap-2 mt-3">
               ${x.chunks ? `<button data-read="${x.id}" class="${BTN_P} !py-1.5">Đọc tài liệu</button>` : ''}
-              ${d.can_manage ? `<button data-edit="${x.id}" class="${BTN_S} !py-1.5">Sửa</button><button data-views="${x.id}" class="${BTN_S} !py-1.5">Lượt xem</button><button data-del="${x.id}" class="text-xs text-slate-500 hover:text-redsun-700 px-2">Xóa</button>` : ''}
+              ${d.can && d.can.edit ? `<button data-edit="${x.id}" class="${BTN_S} !py-1.5">Sửa</button><button data-views="${x.id}" class="${BTN_S} !py-1.5">Lượt xem</button>` : ''}${d.can && d.can.delete ? `<button data-del="${x.id}" class="text-xs text-slate-500 hover:text-redsun-700 px-2">Xóa</button>` : ''}
             </div></div></div>`, 'h-full');
       draw();
       document.getElementById('doc-q').oninput = (e) => { DOC.q = e.target.value; draw(); };
