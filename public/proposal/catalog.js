@@ -39,6 +39,18 @@ export const PROPOSALS = [
     lang: 'vi'
   },
   {
+    id: 'webino-ecommerce-en',
+    title: 'E-commerce Website Design & Deployment Proposal (EN)',
+    short: 'E-commerce Website (EN)',
+    version: '3.0',
+    description: 'English version. E-commerce website on the Webino Builder platform: 16 core features, advanced features, Webino Shop / Growth / Enterprise plans, order flow, payment & shipping, post-launch support.',
+    slides: 29,
+    updated: '2026-11-17',
+    email_subject: 'Redsun – E-commerce website proposal for {khach}',
+    pdf_name: 'Redsun-Proposal-Ecommerce-Website-EN',
+    lang: 'en'
+  },
+  {
     id: 'webino-doanh-nghiep',
     title: 'Đề xuất giải pháp Thiết Kế & Triển khai Web Doanh Nghiệp (VN)',
     short: 'Web Doanh Nghiệp (VN)',
@@ -49,6 +61,18 @@ export const PROPOSALS = [
     email_subject: 'Redsun – Đề xuất giải pháp Thiết Kế & Triển khai Web Doanh Nghiệp cho {khach}',
     pdf_name: 'Redsun-Proposal-Website-Doanh-nghiep-VN',
     lang: 'vi'
+  },
+  {
+    id: 'webino-doanh-nghiep-en',
+    title: 'Corporate Website Design & Deployment Proposal (EN)',
+    short: 'Corporate Website (EN)',
+    version: '3.5',
+    description: 'English version. Corporate website on the Webino Builder platform: five core pages expandable as needed, Webino plans, add-on packages, advanced features, four-phase implementation.',
+    slides: 15,
+    updated: '2026-11-17',
+    email_subject: 'Redsun – Corporate website proposal for {khach}',
+    pdf_name: 'Redsun-Proposal-Corporate-Website-EN',
+    lang: 'en'
   }
 ];
 export const getProposal = (id) => PROPOSALS.find((p) => p.id === id) || null;
