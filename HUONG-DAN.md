@@ -1,4 +1,4 @@
-# Hướng dẫn sử dụng – sales-kpi.redsun.vn
+# Hướng dẫn sử dụng – Hệ thống KPI & Đào tạo (sales-kpi.redsun.vn)
 
 ## 1. Đăng nhập lần đầu
 1. Mở `https://sales-kpi.redsun.vn`, nhập **email** và **mật khẩu tạm** được cấp.

@@ -1,4 +1,4 @@
-# REDSUN – Quy chế Lương, Thưởng & KPI Khối Kinh Doanh
+# REDSUN – Hệ thống KPI & Đào tạo
 
 Ứng dụng nội bộ chạy trên **Cloudflare Workers + D1** tại `sales-kpi.redsun.vn`:
 
