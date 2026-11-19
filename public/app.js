@@ -1680,6 +1680,25 @@
   const prLang = (pid) => { const p = PR.data && PR.data.proposals.find((x) => x.id === pid); return p && p.lang === 'en' ? 'en' : 'vi'; };
   const prMe = (pid) => ({ ...((PR.data && (pid && prLang(pid) === 'en' ? PR.data.fields_en : PR.data.fields)) || {}) });
   const prQuery = (f) => new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
+  const prProp = (pid) => (PR.data && PR.data.proposals.find((x) => x.id === pid)) || {};
+  const prKind = (pid) => prProp(pid).kind || 'html';
+  const prDay = (d, en) => en ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : d.toLocaleDateString('vi-VN');
+  // Thông tin điền thử (proposal PDF): hồ sơ của bạn + ngày gửi hôm nay, hiệu lực 30 ngày
+  const prSample = (pid, extra = {}) => { const en = prLang(pid) === 'en', t = new Date();
+    return { ...prMe(pid), ngay: prDay(t, en), han: prDay(new Date(t.getTime() + 30 * 864e5), en), ...extra }; };
+  let rspdfP = null;
+  const loadRspdf = () => rspdfP || (rspdfP = new Promise((res, rej) => {
+    if (window.RSPDF) return res(window.RSPDF);
+    const s = document.createElement('script'); s.src = '/proposal/_shared/pdfprop.js';
+    s.onload = () => res(window.RSPDF); s.onerror = () => { rspdfP = null; rej(new Error('Không tải được bộ xử lý PDF.')); };
+    document.head.appendChild(s);
+    if (!document.querySelector('link[data-rsfont]')) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/proposal/_shared/fonts/fonts.css'; l.dataset.rsfont = '1'; document.head.appendChild(l); }
+  }));
+  async function ptplBytes(pid) {
+    const r = await fetch(`/api/ptpl/${encodeURIComponent(pid)}/file`, { credentials: 'same-origin' });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Không tải được file PDF.'); }
+    return new Uint8Array(await r.arrayBuffer());
+  }
   const shareStatus = (s) => s.revoked ? ['Đã thu hồi', 'bg-slate-200 text-slate-600'] : s.expired ? ['Hết hạn', 'bg-slate-200 text-slate-600']
     : s.views ? ['Khách đã xem', 'bg-emerald-100 text-emerald-800'] : (STATUS[s.email_status] || ['Đã tạo link', 'bg-blue-100 text-blue-800']);
 
@@ -1689,20 +1708,31 @@
       const d = await api('/api/proposals'); PR.data = d;
       const me = prMe(), many = !isSelf();
       const mailNote = d.mail_ready ? '' : `<div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">Hệ thống <b>chưa cấu hình máy chủ gửi email (SMTP)</b>. Bạn vẫn tạo được đường dẫn để gửi khách qua Zalo/email riêng; gửi email trực tiếp dùng được sau khi Admin cấu hình.</div>`;
-      const cards = d.proposals.map((p) => card(`<div class="p-5 flex flex-col h-full">
-          <div class="h-1.5 w-12 rounded-full bg-redsun-700 mb-3"></div>
+      const mgr = canDo('ptpl', 'add') || canDo('ptpl', 'edit') || canDo('ptpl', 'delete');
+      const cards = d.proposals.map((p) => {
+        const pdf = p.kind === 'pdf', usable = !pdf || p.ready;
+        const badges = pdf ? [pill(['PDF tải lên', 'bg-blue-100 text-blue-800']),
+          !p.ready ? pill(['Chưa có file', 'bg-amber-100 text-amber-800']) : !p.active ? pill(['Đang ẩn với nhân viên', 'bg-slate-200 text-slate-600']) : '',
+          p.ready && !p.layout.length ? pill(['Chưa đặt ô thông tin', 'bg-amber-100 text-amber-800']) : ''].join(' ') : '';
+        return card(`<div class="p-5 flex flex-col h-full">
+          <div class="h-1.5 w-12 rounded-full ${pdf ? 'bg-amber-500' : 'bg-redsun-700'} mb-3"></div>
+          ${pdf && mgr ? `<div class="flex flex-wrap gap-1 mb-2">${badges}</div>` : ''}
           <h3 class="font-extrabold text-slate-900">${esc(p.title)}</h3>
           <p class="text-sm text-slate-500 mt-1 flex-grow">${esc(p.description)}</p>
-          <p class="text-[11px] text-slate-400 mt-3">${p.version ? `Tài liệu v${esc(p.version)} • ` : ''}${p.slides} slide • cập nhật ${esc(p.updated.split('-').reverse().join('/'))}</p>
+          <p class="text-[11px] text-slate-400 mt-3">${p.version ? `Tài liệu v${esc(p.version)} • ` : ''}${p.slides} ${pdf ? 'trang' : 'slide'} • cập nhật ${esc(p.updated.split('-').reverse().join('/'))}</p>
           <div class="flex flex-wrap gap-2 mt-4">
-            <button data-present="${p.id}" class="${BTN_S}">▶ Trình chiếu</button>
+            ${usable ? `<button data-present="${p.id}" class="${BTN_S}">▶ Trình chiếu</button>
             <button data-pdf="${p.id}" class="${BTN_S}">⬇ Xuất PDF</button>
-            ${canDo('proposal', 'add') ? `<button data-send="${p.id}" class="${BTN_P}">✉ Gửi khách hàng</button>` : ''}
-          </div></div>`)).join('');
+            ${canDo('proposal', 'add') ? `<button data-send="${p.id}" class="${BTN_P}">✉ Gửi khách hàng</button>` : ''}` : ''}
+            ${pdf && p.ready && canDo('ptpl', 'edit') ? `<button data-pt-layout="${p.id}" class="${BTN_S}">⌖ Đặt ô thông tin</button>` : ''}
+            ${pdf && mgr ? `<button data-pt-edit="${p.id}" class="${BTN_S}">⚙ Sửa</button>` : ''}
+          </div></div>`);
+      }).join('');
       const meCard = `<div class="p-3 rounded-xl ${me.sdt ? 'bg-slate-50 border border-slate-200 text-slate-600' : 'bg-amber-50 border border-amber-200 text-amber-900'} text-sm">
           Slide cuối và chữ ký email dùng thông tin trong hồ sơ của bạn: <b>${esc([me.tv, me.cv, me.sdt, me.email].filter(Boolean).join(' • '))}</b>.
           ${me.sdt ? '' : '<b>Hồ sơ chưa có số điện thoại.</b> '}${canDo('staff', 'edit') ? 'Sửa ở tab Nhân viên.' : 'Cần sửa, vui lòng báo Admin cập nhật ở tab Nhân viên.'}</div>`;
-      el.innerHTML = pageHead('Proposal', 'Trình chiếu có ghi chú cho Sales. Bản PDF và bản gửi khách luôn bỏ phần ghi chú.')
+      el.innerHTML = pageHead('Proposal', 'Trình chiếu có ghi chú cho Sales. Bản PDF và bản gửi khách luôn bỏ phần ghi chú.',
+          canDo('ptpl', 'add') ? `<button id="pt-new" class="${BTN_P}">＋ Tải lên proposal PDF</button>` : '')
         + `<div class="space-y-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${cards}</div>${meCard}${mailNote}
           ${card(`<div class="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div><h3 class="font-bold text-slate-900">Proposal đã gửi</h3><p class="text-xs text-slate-500">${d.shares.length} lần gửi${many ? (isAll() ? ' (toàn công ty)' : ' (của bạn và nhân viên dưới quyền)') : ''} • lượt xem tính khi khách mở đường dẫn</p></div>
@@ -1711,7 +1741,13 @@
               <th class="py-2.5 px-3 text-left">Khách hàng</th><th class="py-2.5 px-3 text-left">Proposal</th>${many ? '<th class="py-2.5 px-3 text-left">Sales</th>' : ''}
               <th class="py-2.5 px-3 text-left">Trạng thái</th><th class="py-2.5 px-3 text-left">Lượt xem</th><th class="py-2.5 px-3 text-left">Hiệu lực đến</th><th></th></tr></thead>
               <tbody id="pr-rows" class="divide-y divide-slate-100"></tbody></table></div>`)}</div>`;
-      el.querySelectorAll('[data-present]').forEach((b) => b.onclick = () => window.open(`/proposal/${b.dataset.present}/?${prQuery(prMe(b.dataset.present))}`, '_blank'));
+      el.querySelectorAll('[data-present]').forEach((b) => b.onclick = () => {
+        const id = b.dataset.present;
+        window.open(prKind(id) === 'pdf' ? `/proposal/_shared/pdfviewer?id=${encodeURIComponent(id)}&${prQuery(prSample(id))}` : `/proposal/${id}/?${prQuery(prMe(id))}`, '_blank');
+      });
+      el.querySelectorAll('[data-pt-layout]').forEach((b) => b.onclick = () => ptplEditor(b.dataset.ptLayout));
+      el.querySelectorAll('[data-pt-edit]').forEach((b) => b.onclick = () => ptplForm(d.proposals.find((x) => x.id === b.dataset.ptEdit)));
+      const ptNew = document.getElementById('pt-new'); if (ptNew) ptNew.onclick = () => ptplForm(null);
       el.querySelectorAll('[data-pdf]').forEach((b) => b.onclick = () => openPdfModal(b.dataset.pdf));
       el.querySelectorAll('[data-send]').forEach((b) => b.onclick = () => openSendModal(b.dataset.send));
       const drawRows = () => {
@@ -1753,6 +1789,15 @@
 
   // Tạo PDF bản gửi khách (không ghi chú) trong một khung ẩn rồi tải về
   function buildPdf(pid, fields, onProgress) {
+    if (prKind(pid) === 'pdf') {                   // proposal PDF tải lên: in chữ vào file gốc
+      const p = prProp(pid);
+      return Promise.all([loadRspdf(), ptplBytes(pid)]).then(([R, bytes]) => R.buildPdf(bytes, p.layout, prSample(pid, fields), onProgress))
+        .then((out) => {
+          const who = (fields.kh || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+          if (onProgress) onProgress(1, 1);
+          return { blob: new Blob([out], { type: 'application/pdf' }), name: (p.pdf_name || 'Redsun-Proposal') + (who ? '-' + who : '') + '.pdf' };
+        });
+    }
     return new Promise((resolve, reject) => {
       const f = document.createElement('iframe');
       f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
@@ -1775,12 +1820,12 @@
     const p = PR.data.proposals.find((x) => x.id === pid);
     openModal(`${modalHead('Xuất PDF – ' + esc(p.short), 'Bản PDF gửi khách: không có ghi chú người thuyết trình.')}
       <form id="pdf-form" class="px-6 py-5 space-y-3">
-        <p class="text-xs text-slate-500">Trang bìa: "Kính gửi" + người nhận + doanh nghiệp.</p>
+        <p class="text-xs text-slate-500">${prKind(pid) === 'pdf' ? 'Điền vào các ô thông tin đã đặt trên proposal.' : 'Trang bìa: "Kính gửi" + người nhận + doanh nghiệp.'}</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           ${field('Người nhận', `<input id="pdf-nguoi" maxlength="120" class="${inputCls}" placeholder="Anh Nguyễn Văn Minh – Giám đốc">`)}
           ${field('Doanh nghiệp khách hàng', `<input id="pdf-kh" maxlength="160" class="${inputCls}" placeholder="Công ty Cổ phần ABC">`)}
         </div>
-        <p class="text-xs text-slate-500">Slide cuối ghi chuyên viên: <b>${esc([prMe(pid).tv, prMe(pid).sdt].filter(Boolean).join(' • '))}</b> (theo hồ sơ nhân viên).</p>
+        <p class="text-xs text-slate-500">${prKind(pid) === 'pdf' ? 'Thông tin nhân viên' : 'Slide cuối ghi chuyên viên'}: <b>${esc([prMe(pid).tv, prMe(pid).sdt].filter(Boolean).join(' • '))}</b> (theo hồ sơ nhân viên).</p>
         <div id="pdf-prog" class="hidden"><div class="h-2 rounded-full bg-slate-100 overflow-hidden"><div id="pdf-bar" class="h-2 bg-redsun-700" style="width:0%"></div></div><p id="pdf-txt" class="text-xs text-slate-500 mt-1"></p></div>
         ${errBox('pdf-err')}
         <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="${BTN_S}">Đóng</button><button id="pdf-go" class="${BTN_P}">Tạo PDF</button></div>
@@ -1851,6 +1896,239 @@
         if (cancel) cancel.disabled = false;
       }
     };
+  }
+
+  /* ----- Proposal PDF tải lên: thông tin mẫu + file ----- */
+  function ptplForm(p) {
+    const isNew = !p, en = p && p.lang === 'en';
+    const maxMb = (PR.data && PR.data.ptpl_max_mb) || 25;
+    openModal(`${modalHead(isNew ? 'Tải lên proposal PDF' : 'Sửa proposal PDF – ' + esc(p.short), 'Thiết kế proposal bằng PowerPoint/Canva, chừa chỗ trống cho tên khách và thông tin nhân viên, xuất ra PDF rồi tải lên đây.')}
+      <form id="pt-form" class="px-6 py-5 space-y-3">
+        ${field('Tiêu đề proposal *', `<input id="pt-title" required maxlength="160" value="${esc(p ? p.title : '')}" class="${inputCls}" placeholder="Redsun BOS – Đề xuất giải pháp 2026 (VN)">`, 'Hiện trên thẻ proposal và trang khách xem.')}
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          ${field('Tên ngắn', `<input id="pt-short" maxlength="60" value="${esc(p ? p.short : '')}" class="${inputCls}" placeholder="Redsun BOS (VN)">`, 'Dùng trong danh sách đã gửi.')}
+          ${field('Ngôn ngữ', `<select id="pt-lang" class="${inputCls}"><option value="vi">Tiếng Việt</option><option value="en" ${en ? 'selected' : ''}>Tiếng Anh</option></select>`, 'Email, ngày tháng, chức danh theo ngôn ngữ này.')}
+          ${field('Phiên bản', `<input id="pt-ver" maxlength="20" value="${esc(p ? p.version : '')}" class="${inputCls}" placeholder="1.0">`)}
+        </div>
+        ${field('Mô tả ngắn', `<textarea id="pt-desc" rows="2" maxlength="600" class="${inputCls}" placeholder="Giải pháp gì, gồm những gói nào…">${esc(p ? p.description : '')}</textarea>`)}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          ${field('Tiêu đề email gửi khách', `<input id="pt-subj" maxlength="200" value="${esc(p ? p.email_subject : '')}" class="${inputCls}" placeholder="Redsun – Đề xuất giải pháp cho {khach}">`, '{khach} = tên doanh nghiệp khách hàng.')}
+          ${field('Tên file PDF khi tải về', `<input id="pt-pdfname" maxlength="80" value="${esc(p ? p.pdf_name : '')}" class="${inputCls}" placeholder="Redsun-Proposal-BOS-VN">`, 'Tự thêm tên khách ở cuối.')}
+        </div>
+        ${field(`File PDF${isNew || !p.ready ? ' *' : ' (chọn để thay file)'}`, `<input id="pt-file" type="file" accept="application/pdf,.pdf" class="${inputCls}">`,
+          (p && p.ready ? `Đang dùng: <b>${esc(p.file_name || '')}</b> (${(p.file_size / 1048576).toFixed(1)} MB, ${p.slides} trang). Thay file cùng bố cục thì các ô thông tin giữ nguyên. ` : '') + `Tối đa ${maxMb} MB.`)}
+        <label class="flex items-start gap-2 text-sm text-slate-700"><input id="pt-active" type="checkbox" class="w-4 h-4 mt-0.5" ${p && p.active ? 'checked' : ''}>
+          <span><b>Hiển thị cho nhân viên</b><span class="block text-[11px] text-slate-400">Bỏ chọn để chuẩn bị xong (đặt ô, xem thử) rồi mới mở cho nhân viên gửi khách.</span></span></label>
+        <div id="pt-prog" class="hidden"><div class="h-2 rounded-full bg-slate-100 overflow-hidden"><div id="pt-bar" class="h-2 bg-redsun-700" style="width:0%"></div></div><p id="pt-txt" class="text-xs text-slate-500 mt-1"></p></div>
+        ${errBox('pt-err')}
+        <div class="flex justify-between gap-2 pt-2">
+          <div>${p && canDo('ptpl', 'delete') ? `<button type="button" id="pt-del" class="${btn('bg-white border border-redsun-200 text-redsun-700 hover:bg-redsun-50')}">Xóa</button>` : ''}</div>
+          <div class="flex gap-2"><button type="button" id="pt-cancel" onclick="closeModal()" class="${BTN_S}">Hủy</button><button id="pt-go" class="${BTN_P}">${isNew ? 'Tải lên & đặt ô' : 'Lưu'}</button></div></div>
+      </form>`, false, true);
+    const del = document.getElementById('pt-del');
+    if (del) del.onclick = async () => {
+      if (!confirm(`Xóa proposal "${p.short}"? Các đường dẫn đã gửi còn hiệu lực vẫn xem được đến khi hết hạn.`)) return;
+      try { await api(`/api/ptpl/${p.id}`, { method: 'DELETE' }); closeModal(); renderProposal(); } catch (e) { showErr('pt-err', e.message); }
+    };
+    document.getElementById('pt-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const v = (id) => document.getElementById(id).value.trim();
+      const file = document.getElementById('pt-file').files[0];
+      const wantActive = document.getElementById('pt-active').checked;
+      if ((isNew || !p.ready) && !file) return showErr('pt-err', 'Chọn file PDF của proposal.');
+      if (file && file.size > maxMb * 1048576) return showErr('pt-err', `File vượt quá ${maxMb} MB. Hãy nén PDF (giảm chất lượng ảnh) rồi tải lại.`);
+      const go = document.getElementById('pt-go'), lbl = go.textContent; go.disabled = true; go.textContent = 'Đang lưu…';
+      document.getElementById('pt-cancel').disabled = true;
+      const meta = { title: v('pt-title'), short: v('pt-short'), lang: v('pt-lang'), version: v('pt-ver'), description: v('pt-desc'),
+        email_subject: v('pt-subj'), pdf_name: v('pt-pdfname'), active: wantActive && !!(p && p.ready) && !file };
+      try {
+        let id = p && p.id, pages = 0;
+        if (file) {                                         // đọc thử PDF trước khi tải: đếm trang, báo lỗi file hỏng
+          const R = await loadRspdf();
+          const doc = await R.open(new Uint8Array(await file.arrayBuffer())).catch(() => { throw new Error('Không đọc được file PDF (file hỏng hoặc có mật khẩu).'); });
+          pages = doc.numPages; try { (doc.loadingTask || doc).destroy(); } catch (x) { /* bỏ qua */ }
+        }
+        if (isNew) id = (await api('/api/ptpl', { method: 'POST', body: meta })).id;
+        else await api(`/api/ptpl/${id}`, { method: 'PUT', body: meta });
+        if (file) {
+          document.getElementById('pt-prog').classList.remove('hidden');
+          await uploadPdf(id, file, (pc) => { document.getElementById('pt-bar').style.width = pc + '%'; document.getElementById('pt-txt').textContent = pc < 100 ? `Đang tải lên ${pc}%…` : 'Đang lưu file…'; },
+            `/api/ptpl/${id}/file`, { 'x-pages': pages });
+          if (wantActive) await api(`/api/ptpl/${id}`, { method: 'PUT', body: { ...meta, active: true } });
+        }
+        closeModal();
+        await renderProposal();
+        if (isNew || (file && !(p && p.layout.length))) ptplEditor(id);
+      } catch (err) {
+        showErr('pt-err', err.message); go.disabled = false; go.textContent = lbl; document.getElementById('pt-cancel').disabled = false;
+      }
+    };
+  }
+
+  /* ----- Trình đặt ô thông tin lên trang PDF (kéo thả, chỉnh cỡ chữ, màu, căn lề) ----- */
+  async function ptplEditor(id) {
+    const old = document.getElementById('pt-ed'); if (old) old.remove();
+    const ed = document.createElement('div');
+    ed.id = 'pt-ed'; ed.className = 'fixed inset-0 z-[60] bg-slate-100 flex flex-col';
+    ed.innerHTML = '<div class="p-10 text-center text-slate-500 text-sm">Đang mở trình đặt ô…</div>';
+    document.body.appendChild(ed); document.body.style.overflow = 'hidden';
+    const close = () => { ed.remove(); document.body.style.overflow = ''; document.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); };
+    let R, doc, P;
+    try {
+      [R, P] = await Promise.all([loadRspdf(), api(`/api/ptpl/${encodeURIComponent(id)}`).then((d) => d.proposal)]);
+      doc = await R.open(await ptplBytes(id));
+      await R.fontsReady();
+    } catch (e) {
+      ed.innerHTML = `<div class="p-10 text-center text-sm text-redsun-800">${esc(e.message)}<div class="mt-4"><button id="pe-x" class="${BTN_S}">Đóng</button></div></div>`;
+      document.getElementById('pe-x').onclick = close; return;
+    }
+    const FL = (PR.data && PR.data.ptpl_fields) || {};
+    const N = doc.numPages, pages = {}, sizes = {};
+    let L = JSON.parse(JSON.stringify(P.layout || [])), cur = 0, sel = null, dirty = false, plain = false;
+    const sample = prSample(id, { kh: P.lang === 'en' ? 'ABC Technology Joint Stock Company' : 'Công ty Cổ phần Công nghệ ABC', nguoi: P.lang === 'en' ? 'Mr. John Smith – CEO' : 'Anh Nguyễn Văn Minh – Giám đốc' });
+    const SW = ['#0f172a', '#003049', '#ba0000', '#edad32', '#ffffff', '#475569'];
+    const uid = () => Math.random().toString(36).slice(2, 10);
+    const onPage = (b) => b.page === 0 || b.page === cur + 1;
+    const keyLabel = (t) => String(t).replace(/\{(\w+)\}/g, (_, k) => `[${FL[k] || k}]`);
+    ed.innerHTML = `
+      <div class="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-white border-b border-slate-200">
+        <div class="min-w-0 flex-1"><h3 class="font-extrabold text-slate-900 truncate">Đặt ô thông tin – ${esc(P.short)}</h3>
+          <p class="text-[11px] text-slate-500">Chọn thông tin ở cột phải để thêm ô, kéo ô vào chỗ trống trên trang, kéo góc dưới phải để đổi kích thước. Chữ dài tự thu nhỏ cho vừa ô.</p></div>
+        <div class="flex items-center gap-1"><button id="pe-prev" class="${BTN_S}" aria-label="Trang trước">‹</button>
+          <span class="text-sm text-slate-600 px-1">Trang <input id="pe-pg" type="number" min="1" max="${N}" value="1" class="w-14 px-1 py-1 border border-slate-300 rounded text-center text-sm"> / ${N}</span>
+          <button id="pe-next" class="${BTN_S}" aria-label="Trang sau">›</button></div>
+        <label class="flex items-center gap-1.5 text-xs text-slate-600 px-2"><input id="pe-plain" type="checkbox" class="w-4 h-4"> Xem như khách</label>
+        <button id="pe-cancel" class="${BTN_S}">Đóng</button><button id="pe-save" class="${BTN_P}">Lưu</button>
+      </div>
+      <div class="flex-1 flex min-h-0">
+        <div id="pe-main" class="flex-1 overflow-auto p-4 sm:p-6"><div id="pe-page" class="relative mx-auto bg-white shadow-lg select-none" style="max-width:1100px"><canvas class="absolute inset-0 w-full h-full"></canvas><div id="pe-lay" class="absolute inset-0"></div></div>
+          <p id="pe-thumbs" class="text-center text-[11px] text-slate-400 mt-3"></p></div>
+        <aside class="w-80 shrink-0 bg-white border-l border-slate-200 overflow-y-auto p-4 space-y-5">
+          <div><h4 class="text-xs font-bold text-slate-500 uppercase mb-2">Thêm ô vào trang này</h4>
+            <div class="grid grid-cols-2 gap-1.5">${Object.entries(FL).map(([k, t]) => `<button data-add="${k}" class="text-left text-xs px-2 py-1.5 rounded-lg border border-slate-200 hover:border-redsun-400 hover:bg-redsun-50">＋ ${esc(t)}</button>`).join('')}</div></div>
+          <div id="pe-prop"></div>
+          <div><h4 class="text-xs font-bold text-slate-500 uppercase mb-2">Dữ liệu xem thử</h4>
+            <div class="space-y-2">${field('Doanh nghiệp khách', `<input id="pe-s-kh" value="${esc(sample.kh)}" class="${inputCls}">`)}
+            ${field('Người nhận', `<input id="pe-s-nguoi" value="${esc(sample.nguoi)}" class="${inputCls}">`, 'Thử tên dài để kiểm tra chữ có vừa ô. Thông tin nhân viên lấy theo hồ sơ của bạn.')}</div></div>
+        </aside>
+      </div>`;
+    const $ = (s) => ed.querySelector(s);
+    const page = $('#pe-page'), lay = $('#pe-lay'), canvas = page.querySelector('canvas');
+
+    async function showPage(i) {
+      cur = Math.max(0, Math.min(N - 1, i)); $('#pe-pg').value = cur + 1;
+      if (sel && !onPage(L.find((b) => b.id === sel) || {})) sel = null;
+      if (!pages[cur]) { pages[cur] = await doc.getPage(cur + 1); sizes[cur] = R.pageSize(pages[cur]); }
+      const s = sizes[cur], main = $('#pe-main');
+      const maxW = Math.min(1100, main.clientWidth - 48, (main.clientHeight - 60) * s.w / s.h);
+      page.style.width = Math.max(320, Math.floor(maxW)) + 'px'; page.style.aspectRatio = `${s.w} / ${s.h}`;
+      await R.renderPage(pages[cur], canvas, page.clientWidth).catch(() => {});
+      drawBoxes(); drawProps();
+      const used = [...new Set(L.map((b) => b.page))].filter((x) => x > 0).sort((a, b) => a - b);
+      $('#pe-thumbs').textContent = L.length ? `${L.length} ô • có ô ở trang: ${[L.some((b) => b.page === 0) ? 'mọi trang' : '', ...used].filter(Boolean).join(', ')}` : 'Chưa có ô nào.';
+    }
+    function drawBoxes() {
+      const s = sizes[cur], k = lay.clientWidth / s.w;
+      lay.innerHTML = '';
+      const data = { ...sample, kh: $('#pe-s-kh').value.trim(), nguoi: $('#pe-s-nguoi').value.trim() };
+      L.filter(onPage).forEach((b) => {
+        const text = R.fill(b.text, data), on = b.id === sel;
+        const show = text || keyLabel(b.text), sz = R.fit(R.measure(show, b.size, b.weight), b.size, b.w * s.w);
+        const d = document.createElement('div');
+        d.dataset.box = b.id;
+        d.style.cssText = `position:absolute;left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%;display:flex;align-items:center;white-space:nowrap;line-height:1;cursor:move;touch-action:none;`
+          + `justify-content:${b.align === 'center' ? 'center' : b.align === 'right' ? 'flex-end' : 'flex-start'};font-family:'Be Vietnam Pro',Arial,sans-serif;font-weight:${b.weight};`
+          + `color:${text ? b.color : '#94a3b8'};font-size:${sz * k}px;font-style:${text ? 'normal' : 'italic'};`
+          + (plain && !on ? '' : `outline:${on ? '2px solid #2563eb' : '1.5px dashed #2563eb'};outline-offset:0;background:${on ? 'rgba(37,99,235,.10)' : 'rgba(37,99,235,.05)'};`);
+        d.textContent = show;
+        if (b.page === 0 && !plain) { const t = document.createElement('span'); t.textContent = 'mọi trang'; t.style.cssText = 'position:absolute;top:-15px;left:0;font:600 9px Arial;color:#2563eb;font-style:normal'; d.appendChild(t); }
+        if (on) { const h = document.createElement('div'); h.dataset.rs = '1'; h.style.cssText = 'position:absolute;right:-6px;bottom:-6px;width:12px;height:12px;background:#2563eb;border:2px solid #fff;border-radius:3px;cursor:nwse-resize'; d.appendChild(h); }
+        lay.appendChild(d);
+      });
+    }
+    function drawProps() {
+      const b = L.find((x) => x.id === sel), el = $('#pe-prop');
+      if (!b) { el.innerHTML = `<div class="p-3 rounded-lg bg-slate-50 text-xs text-slate-500">Bấm vào một ô trên trang để chỉnh. Phím mũi tên: dịch ô (giữ Shift: dịch nhanh), Delete: xóa ô.</div>`; return; }
+      el.innerHTML = `<h4 class="text-xs font-bold text-slate-500 uppercase mb-2">Ô đang chọn</h4><div class="space-y-3">
+        ${field('Nội dung', `<input id="pp-text" maxlength="300" value="${esc(b.text)}" class="${inputCls} font-mono text-xs">`, 'Có thể gõ thêm chữ cố định, vd: <code>Kính gửi: {nguoi}</code>. Ô có thông tin trống sẽ để trống.')}
+        <select id="pp-ins" class="${inputCls} text-xs"><option value="">＋ Chèn thông tin vào nội dung…</option>${Object.entries(FL).map(([k, t]) => `<option value="${k}">${esc(t)} – {${k}}</option>`).join('')}</select>
+        <div class="grid grid-cols-2 gap-2">
+          ${field('Cỡ chữ (pt)', `<input id="pp-size" type="number" min="3" max="300" step="0.5" value="${b.size}" class="${inputCls}">`)}
+          ${field('Độ đậm', `<select id="pp-w" class="${inputCls}"><option value="400">Thường</option><option value="600" ${b.weight === 600 ? 'selected' : ''}>Đậm vừa</option><option value="700" ${b.weight === 700 ? 'selected' : ''}>Đậm</option></select>`)}</div>
+        <div><span class="block text-xs font-bold text-slate-600 mb-1">Màu chữ</span><div class="flex items-center gap-1.5">
+          <input id="pp-color" type="color" value="${b.color}" class="w-9 h-8 p-0 border border-slate-300 rounded cursor-pointer">
+          ${SW.map((c) => `<button data-sw="${c}" title="${c}" class="w-6 h-6 rounded-full border ${b.color === c ? 'ring-2 ring-blue-500' : 'border-slate-300'}" style="background:${c}"></button>`).join('')}</div></div>
+        <div><span class="block text-xs font-bold text-slate-600 mb-1">Căn lề</span><div class="grid grid-cols-3 gap-1">
+          ${[['left', 'Trái'], ['center', 'Giữa'], ['right', 'Phải']].map(([a, t]) => `<button data-al="${a}" class="text-xs py-1.5 rounded-lg border ${b.align === a ? 'border-blue-500 bg-blue-50 text-blue-700 font-bold' : 'border-slate-200'}">${t}</button>`).join('')}</div></div>
+        <label class="flex items-center gap-2 text-xs text-slate-700"><input id="pp-all" type="checkbox" class="w-4 h-4" ${b.page === 0 ? 'checked' : ''}> Lặp lại ở mọi trang (vd: chân trang)</label>
+        <div class="flex gap-2"><button id="pp-dup" class="${BTN_S} flex-1">Nhân bản</button><button id="pp-del" class="${btn('bg-white border border-redsun-200 text-redsun-700 hover:bg-redsun-50')} flex-1">Xóa ô</button></div></div>`;
+      const up = (fn) => { fn(b); dirty = true; drawBoxes(); };
+      $('#pp-text').oninput = (e) => up((x) => { x.text = e.target.value; });
+      $('#pp-ins').onchange = (e) => { if (!e.target.value) return; const t = $('#pp-text'); up((x) => { x.text = (x.text ? x.text + ' ' : '') + `{${e.target.value}}`; }); t.value = b.text; e.target.value = ''; };
+      $('#pp-size').oninput = (e) => up((x) => { x.size = Math.max(3, Math.min(300, +e.target.value || x.size)); });
+      $('#pp-w').onchange = (e) => up((x) => { x.weight = +e.target.value; });
+      $('#pp-color').oninput = (e) => up((x) => { x.color = e.target.value; });
+      el.querySelectorAll('[data-sw]').forEach((s) => s.onclick = () => { up((x) => { x.color = s.dataset.sw; }); drawProps(); });
+      el.querySelectorAll('[data-al]').forEach((s) => s.onclick = () => { up((x) => { x.align = s.dataset.al; }); drawProps(); });
+      $('#pp-all').onchange = (e) => { up((x) => { x.page = e.target.checked ? 0 : cur + 1; }); showPage(cur); };
+      $('#pp-dup').onclick = () => { const c = { ...b, id: uid(), y: Math.min(1 - b.h, b.y + b.h + 0.01) }; L.push(c); sel = c.id; dirty = true; drawBoxes(); drawProps(); };
+      $('#pp-del').onclick = () => { L = L.filter((x) => x.id !== b.id); sel = null; dirty = true; showPage(cur); };
+    }
+    // Thêm ô mới ở giữa trang
+    ed.querySelectorAll('[data-add]').forEach((a) => a.onclick = () => {
+      const s = sizes[cur], k = a.dataset.add;
+      const b = { id: uid(), page: cur + 1, x: 0.3, y: 0.45, w: 0.4, h: 0.06, text: `{${k}}`, size: Math.round(s.h * 0.03 * 2) / 2, color: '#0f172a', align: 'left', weight: k === 'kh' ? 700 : 400 };
+      b.h = Math.min(0.2, Math.max(0.03, (b.size * 1.6) / s.h));
+      L.push(b); sel = b.id; dirty = true; showPage(cur);
+    });
+    // Kéo thả / đổi kích thước bằng chuột hoặc cảm ứng
+    let drag = null;
+    lay.addEventListener('pointerdown', (e) => {
+      const el = e.target.closest('[data-box]');
+      if (!el) { if (sel) { sel = null; drawBoxes(); drawProps(); } return; }
+      const b = L.find((x) => x.id === el.dataset.box); if (!b) return;
+      e.preventDefault();
+      if (sel !== b.id) { sel = b.id; drawBoxes(); drawProps(); }
+      const r = lay.getBoundingClientRect();
+      drag = { b, resize: !!e.target.dataset.rs, sx: e.clientX, sy: e.clientY, x: b.x, y: b.y, w: b.w, h: b.h, W: r.width, H: r.height, moved: false };
+      lay.setPointerCapture(e.pointerId);
+    });
+    lay.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const dx = (e.clientX - drag.sx) / drag.W, dy = (e.clientY - drag.sy) / drag.H, b = drag.b;
+      if (!drag.moved && Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) < 3) return;
+      drag.moved = true;
+      if (drag.resize) { b.w = Math.max(0.01, Math.min(1 - b.x, drag.w + dx)); b.h = Math.max(0.01, Math.min(1 - b.y, drag.h + dy)); }
+      else { b.x = Math.max(0, Math.min(1 - b.w, drag.x + dx)); b.y = Math.max(0, Math.min(1 - b.h, drag.y + dy)); }
+      dirty = true; drawBoxes();
+    });
+    const endDrag = () => { drag = null; };
+    lay.addEventListener('pointerup', endDrag); lay.addEventListener('pointercancel', endDrag);
+    function onKey(e) {
+      if (!sel || /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')) return;
+      const b = L.find((x) => x.id === sel); if (!b) return;
+      const st = e.shiftKey ? 0.01 : 0.002, mv = { ArrowLeft: [-st, 0], ArrowRight: [st, 0], ArrowUp: [0, -st], ArrowDown: [0, st] }[e.key];
+      if (mv) { e.preventDefault(); b.x = Math.max(0, Math.min(1 - b.w, b.x + mv[0])); b.y = Math.max(0, Math.min(1 - b.h, b.y + mv[1])); dirty = true; drawBoxes(); }
+      else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); L = L.filter((x) => x.id !== sel); sel = null; dirty = true; showPage(cur); }
+      else if (e.key === 'Escape') { sel = null; drawBoxes(); drawProps(); }
+    }
+    document.addEventListener('keydown', onKey);
+    let rt; const onResize = () => { clearTimeout(rt); rt = setTimeout(() => showPage(cur), 150); };
+    window.addEventListener('resize', onResize);
+    $('#pe-prev').onclick = () => showPage(cur - 1); $('#pe-next').onclick = () => showPage(cur + 1);
+    $('#pe-pg').onchange = (e) => showPage((+e.target.value || 1) - 1);
+    $('#pe-plain').onchange = (e) => { plain = e.target.checked; drawBoxes(); };
+    $('#pe-s-kh').oninput = $('#pe-s-nguoi').oninput = () => drawBoxes();
+    $('#pe-cancel').onclick = () => { if (dirty && !confirm('Đóng mà không lưu các thay đổi?')) return; close(); };
+    $('#pe-save').onclick = async () => {
+      const bt = $('#pe-save'); bt.disabled = true; bt.textContent = 'Đang lưu…';
+      try {
+        const r = await api(`/api/ptpl/${encodeURIComponent(id)}/layout`, { method: 'PUT', body: { layout: L } });
+        dirty = false; close(); await renderProposal();
+        if (!P.active && canDo('ptpl', 'edit')) alert(`Đã lưu ${r.boxes} ô. Proposal đang ẩn với nhân viên: bấm "⚙ Sửa" và chọn "Hiển thị cho nhân viên" khi đã sẵn sàng.`);
+      } catch (e) { alert(e.message); bt.disabled = false; bt.textContent = 'Lưu'; }
+    };
+    showPage(0);
   }
 
   /* =========================================================================
@@ -1967,12 +2245,13 @@
       }
     };
   }
-  function uploadPdf(id, file, onProgress) {
+  function uploadPdf(id, file, onProgress, path, headers) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('PUT', `/api/docs/${id}/file`);
+      xhr.open('PUT', path || `/api/docs/${id}/file`);
       xhr.setRequestHeader('content-type', 'application/pdf');
       xhr.setRequestHeader('x-file-name', encodeURIComponent(file.name));
+      Object.entries(headers || {}).forEach(([k, v]) => xhr.setRequestHeader(k, String(v)));
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100)); };
       xhr.onload = () => {
         let d = {}; try { d = JSON.parse(xhr.responseText); } catch (e) { /* bỏ qua */ }

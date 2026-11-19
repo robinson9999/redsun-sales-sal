@@ -11,6 +11,7 @@ import { PROPOSALS, getProposal } from '../public/proposal/catalog.js';
 import { ACTIONS, MODULES, BUILTIN_GROUPS, cleanPerms, permsMeta } from './perms.js';
 import { POLICY_VARS, cleanContent } from './policy.js';
 import { SEED_CURRENT, SEED_PROPOSED } from './policy-seed.js';
+import { PTPL_FIELDS, PTPL_MAX_MB, cleanLayout, cleanMeta } from './ptpl.js';
 import { SALES_TITLES, BUILTIN_FORMULA, BUILTIN_PARAMS, TEMPLATES, NONE_FORMULA, cleanConfig, cleanParams, defaultParams, templatesPublic } from './formulas.js';
 
 const PBKDF2_ITER = 50000;               // Workers giới hạn tối đa 100.000; 50.000 để vừa CPU gói miễn phí
@@ -232,6 +233,33 @@ async function ensureSchema(env) {
       first_viewed_at INTEGER,
       last_viewed_at INTEGER)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_pshare_user ON proposal_shares(user_id, created_at)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS ptpl (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      short TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      lang TEXT NOT NULL DEFAULT 'vi',
+      version TEXT NOT NULL DEFAULT '',
+      email_subject TEXT NOT NULL DEFAULT '',
+      pdf_name TEXT NOT NULL DEFAULT '',
+      layout TEXT NOT NULL DEFAULT '[]',
+      pages INTEGER NOT NULL DEFAULT 0,
+      file_name TEXT,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      chunks INTEGER NOT NULL DEFAULT 0,
+      file_rev INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 0,
+      deleted INTEGER NOT NULL DEFAULT 0,
+      created_by INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_by INTEGER,
+      updated_at INTEGER NOT NULL)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS ptpl_chunks (
+      ptpl_id TEXT NOT NULL,
+      rev INTEGER NOT NULL,
+      seq INTEGER NOT NULL,
+      data BLOB NOT NULL,
+      PRIMARY KEY (ptpl_id, rev, seq))`),
     // Tài liệu nội bộ: file PDF lưu thành nhiều khúc ≤ 1 MB trong D1 (giới hạn 2 MB/dòng), chỉ xem trong tool
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS docs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -600,7 +628,29 @@ const escH = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
 const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const fmtDay = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : '';
 const fmtDayEn = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: 'numeric', month: 'long', year: 'numeric' }) : '';
-const FIELD_KEYS = { kh: 160, nguoi: 120, tv: 80, cv: 80, sdt: 40, email: 120, ct: 160, ctdc: 200, ctdt: 100, cthl: 40, ctemail: 120, ctweb: 120 };
+const FIELD_KEYS = { kh: 160, nguoi: 120, tv: 80, cv: 80, sdt: 40, email: 120, ct: 160, ctdc: 200, ctdt: 100, cthl: 40, ctemail: 120, ctweb: 120, ngay: 40, han: 40 };
+
+/* Proposal tải lên (PDF): đọc từ bảng ptpl, dùng chung danh mục với proposal có sẵn (catalog.js) */
+let CUSTOM_PROPS = new Map();
+const ptplView = (r) => ({ id: r.id, kind: 'pdf', title: r.title, short: r.short || r.title, description: r.description, version: r.version,
+  slides: r.pages, updated: new Date(r.updated_at * 1000).toISOString().slice(0, 10), lang: r.lang === 'en' ? 'en' : 'vi',
+  email_subject: r.email_subject || ((r.lang === 'en' ? r.title + ' – proposal for ' : r.title + ' – gửi ') + '{khach}'),
+  pdf_name: r.pdf_name || 'Redsun-Proposal', active: !!r.active, ready: r.chunks > 0, file_rev: r.file_rev, file_name: r.file_name,
+  file_size: r.file_size, layout: parseJ(r.layout, []), deleted: !!r.deleted });
+async function loadCustom(env) {
+  const r = await env.DB.prepare('SELECT * FROM ptpl ORDER BY created_at').all();
+  CUSTOM_PROPS = new Map(r.results.map((x) => [x.id, ptplView(x)]));
+  return CUSTOM_PROPS;
+}
+const getProp = (id) => getProposal(id) || CUSTOM_PROPS.get(id) || null;
+const canPtpl = (me) => can(me, 'ptpl', 'add') || can(me, 'ptpl', 'edit') || can(me, 'ptpl', 'delete');
+async function ptplFile(env, d) {                    // ghép các khúc file PDF đã lưu → ReadableStream (null nếu lỗi)
+  const r = await env.DB.prepare('SELECT data FROM ptpl_chunks WHERE ptpl_id=?1 AND rev=?2 ORDER BY seq').bind(d.id, d.file_rev).all();
+  const parts = r.results.map((row) => row.data instanceof ArrayBuffer ? new Uint8Array(row.data) : Uint8Array.from(row.data));
+  if (!d.chunks || parts.length !== d.chunks || parts.reduce((a, b) => a + b.length, 0) !== d.file_size) return null;
+  return new ReadableStream({ start(c) { for (const b of parts) c.enqueue(b); c.close(); } });
+}
+const pdfHeaders = (d) => ({ 'content-type': 'application/pdf', 'content-length': String(d.file_size), 'cache-control': 'private, no-store', 'content-disposition': 'inline', 'x-content-type-options': 'nosniff' });
 function cleanFields(f) {
   const out = {};
   for (const [k, n] of Object.entries(FIELD_KEYS)) { const v = clip(f && f[k], n); if (v) out[k] = v; }
@@ -608,7 +658,7 @@ function cleanFields(f) {
 }
 const shareLink = (url, token) => `${url.origin}/p/${token}/`;
 function shareView(r, url) {
-  const p = getProposal(r.proposal_id);
+  const p = getProp(r.proposal_id);
   return { id: r.id, proposal_id: r.proposal_id, proposal_title: p ? p.short : r.proposal_id, user_id: r.user_id, user_name: r.user_name,
     customer_company: r.customer_company, customer_name: r.customer_name, customer_email: r.customer_email, cc: r.cc,
     email_status: r.email_status, email_error: r.email_error, sent_at: r.sent_at, created_at: r.created_at, expires_at: r.expires_at,
@@ -650,7 +700,7 @@ function proposalSignature(cfg, f) {
 // Email gửi khách: chỉ có đường dẫn xem proposal (bản không ghi chú; khách tự tải PDF trên trang)
 async function emailProposal(env, url, row, owner) {
   const cfg = await getSettings(env);
-  const p = getProposal(row.proposal_id);
+  const p = getProp(row.proposal_id);
   const f = JSON.parse(row.fields || '{}');
   const to = parseEmails(row.customer_email);
   const ownerEmail = f.email || staffEmail(owner);
@@ -715,9 +765,14 @@ async function servePublicProposal(req, env, url, me) {
     if (!rest || rest.includes('..')) return notFound();
     return withHeaders(await env.ASSETS.fetch(new Request(new URL('/proposal/_shared/' + rest, url), req)), { 'cache-control': 'public, max-age=86400' });
   }
+  if (seg === '_pdfjs') {                           // trình đọc PDF (pdf.js) cho proposal tải lên
+    if (!rest || rest.includes('..')) return notFound();
+    return withHeaders(await env.ASSETS.fetch(new Request(new URL('/vendor/pdfjs/' + rest, url), req)), { 'cache-control': 'public, max-age=86400' });
+  }
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(seg)) return notFound();
   const row = await env.DB.prepare(`SELECT s.*, u.name AS user_name, u.email AS user_email FROM proposal_shares s JOIN users u ON u.id=s.user_id WHERE s.token=?1`).bind(seg).first();
-  const p = row && getProposal(row.proposal_id);
+  if (row && !getProposal(row.proposal_id)) await loadCustom(env);
+  const p = row && getProp(row.proposal_id);
   if (!row || !p) return notFound();
   if (parts.length === 3) return Response.redirect(new URL(`/p/${seg}/`, url), 301);
   if (row.revoked || row.expires_at < now()) {
@@ -733,6 +788,24 @@ async function servePublicProposal(req, env, url, me) {
       <p style="font-size:16px;line-height:1.6;color:#C9D6DE;margin:0 0 16px">${sub}</p>
       <p style="font-size:16px;line-height:1.6;margin:0">${who}</p></div></body></html>`;
     return withHeaders(new Response(page, { status: 410, headers: { 'content-type': 'text/html; charset=utf-8' } }), noStore);
+  }
+  if (p.kind === 'pdf') {                           // proposal tải lên: trang xem PDF + chữ điền theo ô
+    if (rest === 'file.pdf') {
+      const d = await env.DB.prepare('SELECT id, chunks, file_rev, file_size FROM ptpl WHERE id=?1').bind(p.id).first();
+      const out = d && (await ptplFile(env, d));
+      return out ? new Response(out, { headers: pdfHeaders(d) }) : notFound();
+    }
+    if (rest && rest !== 'index.html') return notFound();
+    const res = await env.ASSETS.fetch(new Request(new URL('/proposal/_shared/pdfviewer', url), { method: 'GET' }));
+    if (!res.ok) return withHeaders(new Response('Không tải được đề xuất.', { status: 502 }), noStore);
+    const cfgJs = { title: p.title, lang: p.lang, pdf: 'file.pdf', layout: p.layout, fields: JSON.parse(row.fields || '{}'), pdfName: p.pdf_name, locked: true };
+    const inject = `<script>window.RS_CFG=${JSON.stringify(cfgJs).replace(/</g, '\\u003c')};</script>`;
+    const page = (await res.text()).replace('<!--RS_CFG-->', inject);
+    if (!me && req.method === 'GET') {
+      const t = now();
+      await env.DB.prepare('UPDATE proposal_shares SET views=views+1, last_viewed_at=?1, first_viewed_at=COALESCE(first_viewed_at, ?1) WHERE id=?2').bind(t, row.id).run();
+    }
+    return withHeaders(new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8' } }), noStore);
   }
   if (rest && rest !== 'index.html') {
     if (!rest.startsWith('assets/') || rest.includes('..')) return notFound();
@@ -756,7 +829,7 @@ async function api(req, env, url, me, ctx) {
   if (method !== 'GET' && method !== 'HEAD') {
     const origin = req.headers.get('origin');
     if (origin && new URL(origin).host !== url.host) return bad('Yêu cầu không hợp lệ.', 403);
-    if (method !== 'DELETE' && !/^\/api\/docs\/\d+\/file$/.test(p)) {   // DELETE và tải file PDF (nội dung nhị phân) không đọc JSON; vẫn chặn khác nguồn ở trên
+    if (method !== 'DELETE' && !/^\/api\/(docs\/\d+|ptpl\/[A-Za-z0-9_-]+)\/file$/.test(p)) {   // DELETE và tải file PDF (nội dung nhị phân) không đọc JSON; vẫn chặn khác nguồn ở trên
       if (!(req.headers.get('content-type') || '').includes('application/json')) return bad('Yêu cầu không hợp lệ.', 415);
       try { body = await req.json(); } catch { return bad('Dữ liệu không hợp lệ.'); }
     }
@@ -1522,12 +1595,17 @@ async function api(req, env, url, me, ctx) {
         WHERE ${where} ORDER BY s.created_at DESC LIMIT 300`).bind(...binds).all();
     const cfg = await getSettings(env);
     await loadOrg(env);                                // tên chức danh mới nhất cho phần tư vấn viên
-    return json({ proposals: PROPOSALS, shares: r.results.map((x) => shareView(x, url)), mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg),
+    await loadCustom(env);
+    const mgr = canPtpl(me);                           // người quản lý mẫu thấy cả mẫu đang ẩn / chưa có file
+    const custom = [...CUSTOM_PROPS.values()].filter((x) => !x.deleted && (mgr || (x.active && x.ready)));
+    return json({ proposals: [...PROPOSALS, ...custom], ptpl_fields: PTPL_FIELDS, ptpl_max_mb: PTPL_MAX_MB, shares: r.results.map((x) => shareView(x, url)), mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg),
       fields: proposalFields(cfg, me), fields_en: proposalFields(cfg, me, {}, 'en'), from_name: `${me.name} - ${cfg.company_short || cfg.company_name}` });
   }
   if (p === '/api/proposals/shares' && method === 'POST') {
-    const prop = getProposal(body.proposal_id);
-    if (!prop) return bad('Không tìm thấy proposal.');
+    if (!getProposal(body.proposal_id)) await loadCustom(env);
+    const prop = getProp(body.proposal_id);
+    if (!prop || (prop.kind === 'pdf' && (prop.deleted || !prop.ready))) return bad('Không tìm thấy proposal.');
+    if (prop.kind === 'pdf' && !prop.active && !canPtpl(me)) return bad('Proposal này đang ẩn.');
     const customer_company = clip(body.customer_company, 160), customer_name = clip(body.customer_name, 120);
     const emails = parseEmails(body.customer_email), cc = parseEmails(body.cc);
     const send = !!body.send_email;
@@ -1536,9 +1614,10 @@ async function api(req, env, url, me, ctx) {
     if (emails.length > 5 || cc.length > 10) return bad('Tối đa 5 email nhận và 10 email CC.');
     const days = intSetting(body.days, 30, 1, 90);
     await loadOrg(env);
-    const fields = proposalFields(await getSettings(env), me, { kh: customer_company, nguoi: customer_name }, propLang(prop));
+    const t = now(), en = propLang(prop) === 'en';
+    const fields = proposalFields(await getSettings(env), me, { kh: customer_company, nguoi: customer_name,
+      ngay: en ? fmtDayEn(t) : fmtDay(t), han: en ? fmtDayEn(t + days * 86400) : fmtDay(t + days * 86400) }, propLang(prop));
     const token = b64(crypto.getRandomValues(new Uint8Array(24))).replace(/[+/=]/g, (c) => ({ '+': '-', '/': '_', '=': '' }[c]));
-    const t = now();
     const r = await env.DB.prepare(`INSERT INTO proposal_shares (token,proposal_id,user_id,customer_company,customer_name,customer_email,cc,message,fields,created_at,expires_at)
         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)`).bind(token, prop.id, me.id, customer_company, customer_name, emails.join(', '), cc.join(', '),
         String(body.message || '').slice(0, 2000).trim(), JSON.stringify(fields), t, t + days * 86400).run();
@@ -1553,7 +1632,74 @@ async function api(req, env, url, me, ctx) {
     if (row.user_id !== me.id && scopeOf(me) !== 'all') return bad('Chỉ người gửi (hoặc người có phạm vi Toàn công ty) được thao tác.', 403);
     if (m[2] === 'revoke') { await env.DB.prepare('UPDATE proposal_shares SET revoked=1 WHERE id=?1').bind(row.id).run(); return json({ ok: true }); }
     if (row.revoked || row.expires_at < now()) return bad('Đường dẫn đã thu hồi hoặc hết hạn. Hãy tạo lần gửi mới.');
+    await loadCustom(env);
     return json({ ok: true, ...(await emailProposal(env, url, row, { id: row.user_id, name: row.user_name, email: row.user_email, contact_email: row.user_contact_email })) });
+  }
+
+  /* ----- Mẫu proposal tải lên (PDF + ô thông tin) ----- */
+  if (p.startsWith('/api/ptpl')) {
+    const fileGet = /\/file$/.test(p) && method === 'GET';
+    const act = method === 'GET' ? null : method === 'POST' ? 'add' : method === 'DELETE' ? 'delete' : 'edit';
+    if (act && !can(me, 'ptpl', act) && !(act === 'edit' && /\/file$/.test(p) && can(me, 'ptpl', 'add'))) return deny('ptpl', act);
+    if (!act && !can(me, 'proposal', 'view')) return deny('proposal', 'view');
+    if (fileGet || method === 'GET') {
+      const id = (p.match(/^\/api\/ptpl\/([A-Za-z0-9_-]+)/) || [])[1];
+      const d = id && await env.DB.prepare('SELECT * FROM ptpl WHERE id=?1').bind(id).first();
+      if (!d || (d.deleted && !canPtpl(me)) || (!d.active && !canPtpl(me))) return bad('Không tìm thấy proposal.', 404);
+      if (!fileGet) return json({ proposal: ptplView(d) });
+      const out = await ptplFile(env, d);
+      return out ? new Response(out, { headers: pdfHeaders(d) }) : bad('Proposal chưa có file PDF.', 404);
+    }
+  }
+  if (p === '/api/ptpl' && method === 'POST') {
+    const v = cleanMeta(body); if (v.error) return bad(v.error);
+    const id = 'pdf-' + b64(crypto.getRandomValues(new Uint8Array(6))).replace(/[+/=]/g, (c) => ({ '+': 'a', '/': 'b', '=': '' }[c])).toLowerCase();
+    const t = now();
+    await env.DB.prepare(`INSERT INTO ptpl (id,title,short,description,lang,version,email_subject,pdf_name,active,created_by,created_at,updated_by,updated_at)
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?10,?11)`).bind(id, v.title, v.short, v.description, v.lang, v.version, v.email_subject, v.pdf_name, v.active, me.id, t).run();
+    return json({ ok: true, id });
+  }
+  m = p.match(/^\/api\/ptpl\/([A-Za-z0-9_-]+)(\/file|\/layout)?$/);
+  if (m && method !== 'GET') {
+    const d = await env.DB.prepare('SELECT * FROM ptpl WHERE id=?1 AND deleted=0').bind(m[1]).first();
+    if (!d) return bad('Không tìm thấy proposal.', 404);
+    const t = now();
+    if (!m[2] && method === 'DELETE') {             // còn đường dẫn đang hiệu lực → chỉ ẩn khỏi danh sách để khách vẫn xem được
+      const live = await env.DB.prepare('SELECT COUNT(*) AS n FROM proposal_shares WHERE proposal_id=?1 AND revoked=0 AND expires_at>?2').bind(d.id, t).first();
+      if (live.n) await env.DB.prepare('UPDATE ptpl SET deleted=1, active=0, updated_by=?1, updated_at=?2 WHERE id=?3').bind(me.id, t, d.id).run();
+      else await env.DB.batch([env.DB.prepare('DELETE FROM ptpl_chunks WHERE ptpl_id=?1').bind(d.id), env.DB.prepare('DELETE FROM ptpl WHERE id=?1').bind(d.id)]);
+      return json({ ok: true, kept_for_links: live.n });
+    }
+    if (!m[2] && method === 'PUT') {
+      const v = cleanMeta(body); if (v.error) return bad(v.error);
+      if (v.active && !d.chunks) return bad('Cần tải file PDF trước khi hiển thị cho nhân viên.');
+      await env.DB.prepare(`UPDATE ptpl SET title=?1, short=?2, description=?3, lang=?4, version=?5, email_subject=?6, pdf_name=?7, active=?8, updated_by=?9, updated_at=?10 WHERE id=?11`)
+        .bind(v.title, v.short, v.description, v.lang, v.version, v.email_subject, v.pdf_name, v.active, me.id, t, d.id).run();
+      return json({ ok: true });
+    }
+    if (m[2] === '/layout' && method === 'PUT') {
+      const layout = cleanLayout(body.layout);
+      await env.DB.prepare('UPDATE ptpl SET layout=?1, updated_by=?2, updated_at=?3 WHERE id=?4').bind(JSON.stringify(layout), me.id, t, d.id).run();
+      return json({ ok: true, boxes: layout.length });
+    }
+    if (m[2] === '/file' && method === 'PUT') {      // tải lên / thay file PDF (nội dung nhị phân, chia khúc 1 MB)
+      if (!/application\/pdf/.test(req.headers.get('content-type') || '')) return bad('Chỉ nhận file PDF.', 415);
+      if (+(req.headers.get('content-length') || 0) > PTPL_MAX_MB * 1048576) return bad(`File vượt quá ${PTPL_MAX_MB} MB.`, 413);
+      const buf = new Uint8Array(await req.arrayBuffer());
+      if (!buf.length) return bad('File rỗng.');
+      if (buf.length > PTPL_MAX_MB * 1048576) return bad(`File vượt quá ${PTPL_MAX_MB} MB.`, 413);
+      if (String.fromCharCode(...buf.subarray(0, 5)) !== '%PDF-') return bad('File không phải PDF hợp lệ.');
+      const pages = Math.max(0, Math.min(9999, parseInt(req.headers.get('x-pages') || '0', 10) || 0));
+      const rev = d.file_rev + 1, n = Math.ceil(buf.length / DOC_CHUNK);
+      const name = String(decodeURIComponent(req.headers.get('x-file-name') || 'proposal.pdf')).replace(/[\r\n"\\/]/g, '').slice(0, 160);
+      const ins = [];
+      for (let k = 0; k < n; k++) ins.push(env.DB.prepare('INSERT INTO ptpl_chunks (ptpl_id, rev, seq, data) VALUES (?1,?2,?3,?4)').bind(d.id, rev, k, buf.subarray(k * DOC_CHUNK, (k + 1) * DOC_CHUNK)));
+      for (let k = 0; k < ins.length; k += 10) await env.DB.batch(ins.slice(k, k + 10));
+      await env.DB.batch([
+        env.DB.prepare('UPDATE ptpl SET file_name=?1, file_size=?2, chunks=?3, file_rev=?4, pages=?5, updated_by=?6, updated_at=?7 WHERE id=?8').bind(name, buf.length, n, rev, pages, me.id, t, d.id),
+        env.DB.prepare('DELETE FROM ptpl_chunks WHERE ptpl_id=?1 AND rev<>?2').bind(d.id, rev)]);
+      return json({ ok: true, size: buf.length });
+    }
   }
 
   return bad('Không tìm thấy.', 404);

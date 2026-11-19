@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Redsun – Proposal</title>
+<link rel="stylesheet" href="../_shared/fonts/fonts.css">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#e6eaee;font-family:'Be Vietnam Pro',Arial,sans-serif;color:#0f172a}
+  .bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;padding:10px 18px;background:#003049;color:#F7F5F0;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+  .bar .mk{width:8px;height:28px;border-radius:2px;background:#EDAD32;flex:none}
+  .bar h1{font-size:15px;font-weight:600;margin:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar button{font:inherit;font-size:13px;font-weight:600;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;white-space:nowrap}
+  .b1{background:rgba(255,255,255,.12);color:#fff}.b1:hover{background:rgba(255,255,255,.2)}
+  .b2{background:#EDAD32;color:#2b1d00}.b2:hover{background:#f3bd52}
+  .bar button:disabled{opacity:.6;cursor:wait}
+  #pages{max-width:1180px;margin:0 auto;padding:22px 16px 60px;display:flex;flex-direction:column;gap:18px}
+  .pg{position:relative;width:100%;background:#fff;box-shadow:0 2px 10px rgba(15,23,42,.12);border-radius:4px;overflow:hidden}
+  .pg canvas{position:absolute;inset:0;width:100%;height:100%}
+  .pg .lay{position:absolute;inset:0}
+  .msg{max-width:640px;margin:80px auto;text-align:center;color:#475569;font-size:15px;line-height:1.6;padding:0 20px}
+  #prog{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#003049;color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;display:none;z-index:9}
+  #show{position:fixed;inset:0;z-index:20;background:#05121a;display:none;align-items:center;justify-content:center}
+  #show .stage{position:relative;background:#fff}
+  #show .stage canvas{position:absolute;inset:0;width:100%;height:100%}
+  #show .lay{position:absolute;inset:0}
+  #show .nav{position:fixed;top:0;bottom:0;width:30%;cursor:pointer}
+  #show .nav.l{left:0}#show .nav.r{right:0}
+  #show .ctl{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:center;color:#cbd5e1;font-size:13px;background:rgba(0,0,0,.45);padding:6px 10px;border-radius:999px}
+  #show .ctl button{font:inherit;border:0;background:rgba(255,255,255,.12);color:#fff;border-radius:999px;width:34px;height:34px;cursor:pointer;font-size:16px}
+  @media (max-width:600px){.bar{padding:8px 10px;gap:8px}.bar h1{font-size:13px}.bar button{padding:7px 10px;font-size:12px}#pages{padding:12px 8px 40px;gap:10px}#bShow{display:none}}
+  @media print{.bar,#prog{display:none}#pages{padding:0;gap:0;max-width:none}.pg{box-shadow:none;border-radius:0;break-after:page}}
+</style>
+<!--RS_CFG-->
+</head>
+<body>
+<div class="bar"><span class="mk"></span><h1 id="ttl">Proposal</h1>
+  <button id="bShow" class="b1">▶ Trình chiếu</button><button id="bPdf" class="b2">⬇ Tải PDF</button></div>
+<div id="pages"><p class="msg" id="msg">Đang tải đề xuất…</p></div>
+<div id="prog"></div>
+<div id="show"><div class="stage" id="stage"><canvas></canvas><div class="lay"></div></div>
+  <div class="nav l" id="nl"></div><div class="nav r" id="nr"></div>
+  <div class="ctl"><button id="sp" aria-label="Trang trước">‹</button><span id="sn">1 / 1</span><button id="sx" aria-label="Trang sau">›</button><button id="sc" aria-label="Thoát">✕</button></div></div>
+<script src="../_shared/pdfprop.js"></script>
+<script>
+(function () {
+  'use strict';
+  var R = window.RSPDF, $ = function (id) { return document.getElementById(id); };
+  var CFG = window.RS_CFG, BYTES = null, DOC = null, SIZES = [], PAGES = [];
+  var EN = false;
+  var T = function (vi, en) { return EN ? en : vi; };
+
+  function fromQuery() {                         // trình chiếu nội bộ: /proposal/_shared/pdfviewer?id=…&kh=…
+    var q = new URLSearchParams(location.search), id = q.get('id') || '';
+    var f = {}; q.forEach(function (v, k) { if (k !== 'id') f[k] = v; });
+    return fetch('/api/ptpl/' + encodeURIComponent(id), { credentials: 'same-origin' }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'Không mở được proposal.'); return j.proposal; }); })
+      .then(function (p) { return { title: p.title, lang: p.lang, pdf: '/api/ptpl/' + encodeURIComponent(id) + '/file', layout: p.layout, fields: f, pdfName: p.pdf_name }; });
+  }
+  function boxesOf(i) { return (CFG.layout || []).filter(function (b) { return b.page === 0 || b.page === i + 1; }); }
+  function fail(m) { $('pages').innerHTML = '<p class="msg">' + m.replace(/</g, '&lt;') + '</p>'; }
+
+  (CFG ? Promise.resolve(CFG) : fromQuery()).then(function (c) {
+    CFG = c; EN = c.lang === 'en';
+    document.documentElement.lang = EN ? 'en' : 'vi';
+    document.title = c.title + (c.fields && c.fields.kh ? ' – ' + c.fields.kh : '');
+    $('ttl').textContent = c.title;
+    $('bShow').textContent = T('▶ Trình chiếu', '▶ Present'); $('bPdf').textContent = T('⬇ Tải PDF', '⬇ Download PDF');
+    $('msg') && ($('msg').textContent = T('Đang tải đề xuất…', 'Loading proposal…'));
+    return fetch(c.pdf, { credentials: 'same-origin' });
+  }).then(function (r) { if (!r.ok) throw new Error(T('Không tải được file đề xuất.', 'Could not load the proposal file.')); return r.arrayBuffer(); })
+    .then(function (buf) { BYTES = new Uint8Array(buf); return Promise.all([R.open(BYTES.slice()), R.fontsReady()]); })
+    .then(function (a) { DOC = a[0]; return build(); })
+    .catch(function (e) { fail(e.message || String(e)); });
+
+  function build() {
+    var host = $('pages'); host.innerHTML = '';
+    var jobs = [];
+    for (var i = 0; i < DOC.numPages; i++) jobs.push(DOC.getPage(i + 1));
+    return Promise.all(jobs).then(function (pages) {
+      PAGES = pages;
+      SIZES = pages.map(R.pageSize);
+      var io = new IntersectionObserver(function (ents) {
+        ents.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          var el = en.target; io.unobserve(el);
+          var i = +el.dataset.i;
+          R.renderPage(PAGES[i], el.querySelector('canvas'), el.clientWidth).catch(function () {});
+        });
+      }, { rootMargin: '900px 0px' });
+      SIZES.forEach(function (s, i) {
+        var el = document.createElement('div'); el.className = 'pg'; el.dataset.i = i;
+        el.style.aspectRatio = s.w + ' / ' + s.h;
+        el.innerHTML = '<canvas></canvas><div class="lay"></div>';
+        host.appendChild(el); io.observe(el);
+      });
+      paint();
+    });
+  }
+  function paint() {
+    document.querySelectorAll('#pages .pg').forEach(function (el) {
+      var i = +el.dataset.i; R.overlay(el.querySelector('.lay'), SIZES[i], boxesOf(i), CFG.fields);
+    });
+  }
+  var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(function () { paint(); if (cur >= 0) showPage(cur); }, 150); });
+
+  /* Trình chiếu từng trang */
+  var cur = -1;
+  function showPage(i) {
+    if (!PAGES.length) return;
+    cur = Math.max(0, Math.min(PAGES.length - 1, i));
+    var s = SIZES[cur], vw = window.innerWidth, vh = window.innerHeight - 4;
+    var k = Math.min(vw / s.w, vh / s.h), st = $('stage');
+    st.style.width = Math.floor(s.w * k) + 'px'; st.style.height = Math.floor(s.h * k) + 'px';
+    R.renderPage(PAGES[cur], st.querySelector('canvas'), s.w * k).catch(function () {});
+    R.overlay(st.querySelector('.lay'), s, boxesOf(cur), CFG.fields);
+    $('sn').textContent = (cur + 1) + ' / ' + PAGES.length;
+  }
+  function openShow() {
+    if (!PAGES.length) return;
+    $('show').style.display = 'flex';
+    var d = document.documentElement; if (d.requestFullscreen) d.requestFullscreen().catch(function () {});
+    showPage(Math.max(cur, 0));
+  }
+  function closeShow() { $('show').style.display = 'none'; if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {}); }
+  $('bShow').onclick = openShow; $('sc').onclick = closeShow;
+  $('sp').onclick = $('nl').onclick = function () { showPage(cur - 1); };
+  $('sx').onclick = $('nr').onclick = function () { showPage(cur + 1); };
+  document.addEventListener('fullscreenchange', function () { if (!document.fullscreenElement && $('show').style.display === 'flex') setTimeout(function () { showPage(cur); }, 100); });
+  document.addEventListener('keydown', function (e) {
+    if ($('show').style.display !== 'flex') { if ((e.key === 'F5' || (e.key === 'Enter' && e.altKey))) { e.preventDefault(); openShow(); } return; }
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].indexOf(e.key) >= 0) { e.preventDefault(); showPage(cur + 1); }
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].indexOf(e.key) >= 0) { e.preventDefault(); showPage(cur - 1); }
+    else if (e.key === 'Home') showPage(0); else if (e.key === 'End') showPage(PAGES.length - 1);
+    else if (e.key === 'Escape') closeShow();
+  });
+
+  /* Tải PDF đã điền thông tin */
+  function pdfName() {
+    var who = (CFG.fields && CFG.fields.kh || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+    return (CFG.pdfName || 'Redsun-Proposal') + (who ? '-' + who : '') + '.pdf';
+  }
+  $('bPdf').onclick = function () {
+    if (!BYTES) return;
+    var b = $('bPdf'), pg = $('prog'); b.disabled = true;
+    pg.style.display = 'block'; pg.textContent = T('Đang tạo PDF…', 'Preparing PDF…');
+    R.buildPdf(BYTES.slice(), CFG.layout, CFG.fields).then(function (out) {
+      var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out], { type: 'application/pdf' })); a.download = pdfName();
+      document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+      pg.textContent = T('Đã tải PDF.', 'PDF downloaded.'); setTimeout(function () { pg.style.display = 'none'; }, 2500);
+    }).catch(function (e) { pg.textContent = T('Không tạo được PDF: ', 'Could not create PDF: ') + (e.message || e); setTimeout(function () { pg.style.display = 'none'; }, 5000); })
+      .then(function () { b.disabled = false; });
+  };
+  window.RS_VIEW = { buildPdf: function () { return R.buildPdf(BYTES.slice(), CFG.layout, CFG.fields); }, pdfName: pdfName };
+})();
+</script>
+</body>
+</html>

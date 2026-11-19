@@ -115,6 +115,16 @@ Mọi nhân viên đều dùng được. Mỗi proposal có 3 nút:
 
 **Thêm proposal mới**: đặt bộ trình chiếu vào `public/proposal/<mã>/` gồm `index.html` (nội bộ, có ghi chú trong thẻ `<aside>`), `client.html` (gửi khách, không có `<aside>`) và `assets/`, dùng chung `public/proposal/_shared/` (trình chiếu, xuất PDF, font). Sau đó khai báo một dòng trong `public/proposal/catalog.js`.
 
+### Proposal PDF tải lên (không cần lập trình)
+Dùng khi có proposal mới thiết kế bằng PowerPoint / Canva / Word.
+1. Thiết kế proposal, **chừa chỗ trống** ở chỗ cần điền (vd "Kính gửi: ______", tên tư vấn viên ở trang cuối), xuất ra **PDF** (tối đa 25 MB).
+2. Tab Proposal → **＋ Tải lên proposal PDF**: nhập tiêu đề, ngôn ngữ, tiêu đề email, chọn file → **Tải lên & đặt ô**.
+3. Trình đặt ô mở ra: bấm thông tin ở cột phải (Tên doanh nghiệp KH, Người nhận, Tên/SĐT/Email nhân viên, Ngày gửi, Hiệu lực…) để thêm ô, **kéo ô vào chỗ trống**, kéo góc dưới phải để đổi kích thước; chỉnh cỡ chữ, độ đậm, màu, căn lề. Ô có thể kèm chữ cố định, vd `Kính gửi: {nguoi}`; tick "Lặp lại ở mọi trang" cho chân trang. Chữ dài tự thu nhỏ cho vừa ô. Bấm **Lưu**.
+4. Xem thử bằng **▶ Trình chiếu / ⬇ Xuất PDF**, rồi **⚙ Sửa → Hiển thị cho nhân viên**. Từ đó nhân viên gửi như proposal thường; khách xem trên web, trình chiếu và tải PDF đã điền sẵn thông tin.
+- Thay file (cùng bố cục) ở **⚙ Sửa**: các ô giữ nguyên. Xóa proposal: đường dẫn đã gửi còn hiệu lực vẫn mở được đến khi hết hạn.
+- Quyền: mục **"Mẫu proposal PDF (tải lên)"** trong tab Phân quyền (Thêm = tải lên, Sửa = đặt ô/sửa/ẩn hiện, Xóa). Mặc định chỉ nhóm Admin.
+- Các proposal có sẵn (AI CRM, Web Bán Hàng, Web Doanh Nghiệp) không thay đổi.
+
 ## 6c. Tài liệu nội bộ (tab Tài liệu nội bộ)
 Mọi nhân viên đều đọc được; chỉ **Admin** đăng, sửa, xóa tài liệu.
 - **Đăng tài liệu** (Admin): bấm **＋ Đăng tài liệu**, nhập tên, nhóm tài liệu (chọn nhóm có sẵn trong danh sách, hoặc chọn "＋ Thêm nhóm mới…" rồi nhập tên nhóm), mô tả và chọn file **PDF** (tối đa 25 MB). Bấm **Sửa** để đổi thông tin hoặc thay file; ngày sửa và người sửa được ghi lại.

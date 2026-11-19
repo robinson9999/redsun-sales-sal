@@ -16,6 +16,7 @@ export const MODULES = {
   kpi:      { name: 'KPI của bạn', acts: { view: 'Xem KPI & ước tính thu nhập của mình' } },
   survey:   { name: 'Phiếu khảo sát', acts: { view: 'Xem phiếu (theo phạm vi)', add: 'Lập phiếu mới', edit: 'Sửa / gửi lại phiếu', delete: 'Xóa phiếu' } },
   proposal: { name: 'Proposal', acts: { view: 'Xem, trình chiếu, xuất PDF', add: 'Gửi proposal cho khách', delete: 'Thu hồi đường dẫn đã gửi' } },
+  ptpl:     { name: 'Mẫu proposal PDF (tải lên)', acts: { add: 'Tải lên mẫu proposal PDF mới', edit: 'Đặt ô thông tin, sửa, thay file, ẩn/hiện', delete: 'Xóa mẫu' } },
   docs:     { name: 'Tài liệu nội bộ', acts: { view: 'Đọc tài liệu', add: 'Đăng tài liệu', edit: 'Sửa tài liệu, xem thống kê lượt xem', delete: 'Xóa tài liệu' } },
   assign:   { name: 'Giao KPI', acts: { view: 'Xem KPI đã giao (theo phạm vi)', add: 'Giao KPI', edit: 'Giao lại / sửa KPI', delete: 'Xóa KPI đã giao' } },
   staff:    { name: 'Nhân viên', acts: { view: 'Xem danh sách (theo phạm vi)', add: 'Thêm / nhập nhân viên', edit: 'Sửa thông tin, cấp lại mật khẩu', delete: 'Khóa tài khoản' } },
