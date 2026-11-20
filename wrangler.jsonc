@@ -11,8 +11,12 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": true
+    // Mọi yêu cầu qua máy chủ (đăng nhập) – trừ thư viện/ font/ ảnh dùng cho trang proposal gửi khách:
+    // các file này không có thông tin nội bộ, Cloudflare phục vụ thẳng từ điểm gần người xem (nhanh hơn nhiều)
+    "run_worker_first": ["/*", "!/proposal/_shared/*", "!/vendor/pdfjs/*", "!/proposal/*/assets/*"]
   },
+  // Chạy máy chủ gần cơ sở dữ liệu D1 để các truy vấn liên tiếp nhanh hơn
+  "placement": { "mode": "smart" },
   "d1_databases": [
     { "binding": "DB", "database_name": "redsun-quy-che-db" }
   ],

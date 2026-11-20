@@ -51,3 +51,8 @@ npx wrangler dev        # http://localhost:8787 (D1 cục bộ trong .wrangler/)
 # Tạo file .dev.vars với dòng MAIL_MODE=log để email chỉ ghi log (không gửi thật)
 npm run css             # biên dịch lại CSS khi sửa giao diện
 ```
+
+## Ghi chú kỹ thuật
+- Cấu trúc dữ liệu: khi thêm bảng / cột / dữ liệu gốc trong `migrateSchema` (worker/index.js), **đổi chuỗi `SCHEMA_V`** để máy chủ chạy lại bước nâng cấp; nếu không đổi, máy chủ chỉ kiểm tra phiên bản (1 truy vấn) cho nhanh.
+- File tĩnh cho trang gửi khách (`/proposal/_shared/*`, `/vendor/pdfjs/*`, `/proposal/<id>/assets/*`) được Cloudflare phục vụ thẳng, không qua đăng nhập (xem `run_worker_first` trong wrangler.jsonc) – không đặt nội dung nội bộ ở các thư mục này.
+- File PDF của proposal tải lên lưu ở R2 (binding `FILES`).

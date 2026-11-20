@@ -1,0 +1,8 @@
+/vendor/pdfjs/*
+  Cache-Control: public, max-age=604800
+/proposal/_shared/fonts/*
+  Cache-Control: public, max-age=2592000
+/proposal/_shared/vendor/*
+  Cache-Control: public, max-age=604800
+/proposal/:id/assets/*
+  Cache-Control: public, max-age=86400

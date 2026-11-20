@@ -160,9 +160,25 @@ const normEmail = (e) => String(e || '').trim().toLowerCase();
 const isEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) || /^[a-z0-9._-]{3,}$/.test(e);
 
 /* ---------------------------- Cơ sở dữ liệu ---------------------------- */
-let schemaReady = false;
-async function ensureSchema(env) {
-  if (schemaReady) return;
+// Phiên bản cấu trúc dữ liệu: đổi chuỗi này mỗi khi thêm bảng / cột / dữ liệu gốc.
+// Máy chủ mới khởi động chỉ cần 1 truy vấn kiểm tra phiên bản (trước đây ~20 truy vấn nối tiếp → chậm lần mở đầu).
+const SCHEMA_V = '2026-11-20b';
+let schemaReady = false, schemaP = null;
+function ensureSchema(env) {
+  if (schemaReady) return Promise.resolve();
+  if (!schemaP) schemaP = (async () => {
+    try {
+      const r = await env.DB.prepare("SELECT v FROM app_meta WHERE k='schema'").first();
+      if (r && r.v === SCHEMA_V) { schemaReady = true; return; }
+    } catch (e) { /* chưa có bảng app_meta */ }
+    await migrateSchema(env);
+    await env.DB.batch([env.DB.prepare('CREATE TABLE IF NOT EXISTS app_meta (k TEXT PRIMARY KEY, v TEXT)'),
+      env.DB.prepare("INSERT INTO app_meta (k, v) VALUES ('schema', ?1) ON CONFLICT(k) DO UPDATE SET v=excluded.v").bind(SCHEMA_V)]);
+    schemaReady = true;
+  })().finally(() => { schemaP = null; });
+  return schemaP;
+}
+async function migrateSchema(env) {
   await env.DB.batch([
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -383,7 +399,6 @@ async function ensureSchema(env) {
       env.DB.prepare(`UPDATE users SET dept_id=?1 WHERE dept_id IS NULL AND title IN (${SALES_TITLES.map((x) => `'${x}'`).join(',')})`).bind(DEFAULT_DEPT.id)
     ]);
   }
-  schemaReady = true;
 }
 
 const USER_COLS = 'id,email,name,dept_id,title,app_role,manager_id,salary_w,cb_ratio,start_date,active,must_change,phone,contact_email';
@@ -832,6 +847,12 @@ async function emailProposal(env, url, row, owner) {
     .bind(status, error, ok ? 1 : 0, now(), row.id).run();
   return { email_status: status, email_error: error };
 }
+// Thư viện, font, ảnh của trang gửi khách: trỏ thẳng tới file tĩnh Cloudflare phục vụ tại điểm gần người xem (không qua máy chủ)
+const directAssets = (html, pid) => {
+  let s = html.replace(/(["'(])\.\.\/_shared\//g, '$1/proposal/_shared/');
+  if (pid) s = s.replace(/(["'(])assets\//g, `$1/proposal/${pid}/assets/`);
+  return s;
+};
 // Trang công khai /p/<mã>/…: bản gửi khách (không ghi chú) của một lần chia sẻ
 async function servePublicProposal(req, env, url, me, ctx) {
   const parts = url.pathname.split('/');            // ['', 'p', mã | _shared, ...]
@@ -882,8 +903,8 @@ async function servePublicProposal(req, env, url, me, ctx) {
     const res = await env.ASSETS.fetch(new Request(new URL('/proposal/_shared/pdfviewer', url), { method: 'GET' }));
     if (!res.ok) return withHeaders(new Response('Không tải được đề xuất.', { status: 502 }), noStore);
     const cfgJs = { title: p.title, lang: p.lang, pdf: 'file.pdf?v=' + p.file_rev, size: p.file_size, layout: p.layout, fields: JSON.parse(row.fields || '{}'), pdfName: p.pdf_name, locked: true };
-    const inject = `<link rel="modulepreload" href="/p/_pdfjs/pdf.min.mjs"><script>window.RS_CFG=${JSON.stringify(cfgJs).replace(/</g, '\\u003c')};</script>`;
-    const page = (await res.text()).replace('<!--RS_CFG-->', inject);
+    const inject = `<link rel="modulepreload" href="/vendor/pdfjs/pdf.min.mjs"><script>window.RS_CFG=${JSON.stringify(cfgJs).replace(/</g, '\\u003c')};</script>`;
+    const page = directAssets((await res.text()).replace('<!--RS_CFG-->', inject), null);
     if (!me && req.method === 'GET') {
       const t = now();
       await env.DB.prepare('UPDATE proposal_shares SET views=views+1, last_viewed_at=?1, first_viewed_at=COALESCE(first_viewed_at, ?1) WHERE id=?2').bind(t, row.id).run();
@@ -897,7 +918,7 @@ async function servePublicProposal(req, env, url, me, ctx) {
   const res = await env.ASSETS.fetch(new Request(new URL(`/proposal/${p.id}/client`, url), { method: 'GET' }));
   if (!res.ok) return withHeaders(new Response('Không tải được đề xuất.', { status: 502 }), noStore);
   const inject = `<script>window.RS_LOCKED=true;window.RS_FIELDS=${JSON.stringify(JSON.parse(row.fields || '{}')).replace(/</g, '\\u003c')};</script>`;
-  const page = (await res.text()).replace(/<script src="\.\.\/_shared\/viewer\.js(\?[^"]*)?">/, (m) => inject + m);
+  const page = directAssets((await res.text()).replace(/<script src="\.\.\/_shared\/viewer\.js(\?[^"]*)?">/, (m) => inject + m), p.id);
   if (!me && req.method === 'GET') {                // không tính lượt xem khi nhân viên (đang đăng nhập) mở thử
     const t = now();
     await env.DB.prepare('UPDATE proposal_shares SET views=views+1, last_viewed_at=?1, first_viewed_at=COALESCE(first_viewed_at, ?1) WHERE id=?2').bind(t, row.id).run();
