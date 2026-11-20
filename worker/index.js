@@ -353,7 +353,7 @@ async function ensureSchema(env) {
     'ALTER TABLE users ADD COLUMN phone TEXT', 'ALTER TABLE users ADD COLUMN contact_email TEXT', 'ALTER TABLE users ADD COLUMN dept_id TEXT', 'ALTER TABLE dept_titles ADD COLUMN en TEXT',
     'ALTER TABLE dept_titles ADD COLUMN params TEXT', 'ALTER TABLE title_names ADD COLUMN params TEXT',
     "ALTER TABLE proposal_shares ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''", "ALTER TABLE proposal_shares ADD COLUMN quote_no TEXT NOT NULL DEFAULT ''",
-    'CREATE TABLE IF NOT EXISTS quote_seq (day TEXT PRIMARY KEY, n INTEGER NOT NULL)',
+    'CREATE TABLE IF NOT EXISTS quote_seq (day TEXT PRIMARY KEY, n INTEGER NOT NULL)', 'ALTER TABLE ptpl ADD COLUMN r2_key TEXT',
     'CREATE TABLE IF NOT EXISTS quote_log (no TEXT PRIMARY KEY, day TEXT NOT NULL, user_id INTEGER, kind TEXT NOT NULL, proposal_id TEXT, customer TEXT, created_at INTEGER NOT NULL)']) {
     try { await env.DB.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(String(e.message))) throw e; }
   }
@@ -650,7 +650,7 @@ let CUSTOM_PROPS = new Map();
 const ptplView = (r) => ({ id: r.id, kind: 'pdf', title: r.title, short: r.short || r.title, description: r.description, version: r.version,
   slides: r.pages, updated: new Date(r.updated_at * 1000).toISOString().slice(0, 10), lang: r.lang === 'en' ? 'en' : 'vi',
   email_subject: r.email_subject || ((r.lang === 'en' ? r.title + ' – proposal for ' : r.title + ' – gửi ') + '{khach}'),
-  pdf_name: r.pdf_name || 'Redsun-Proposal', active: !!r.active, ready: r.chunks > 0, file_rev: r.file_rev, file_name: r.file_name,
+  pdf_name: r.pdf_name || 'Redsun-Proposal', active: !!r.active, ready: r.chunks > 0 || !!r.r2_key, r2: !!r.r2_key, file_rev: r.file_rev, file_name: r.file_name,
   file_size: r.file_size, layout: parseJ(r.layout, []), deleted: !!r.deleted });
 async function loadCustom(env) {
   const r = await env.DB.prepare('SELECT * FROM ptpl ORDER BY created_at').all();
@@ -669,16 +669,42 @@ function bytesB64(u) { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s 
 async function ptplCachePut(d, buf) {
   try { await caches.default.put(ptplCacheKey(d), new Response(buf, { headers: { 'content-type': 'application/pdf', 'cache-control': 'public, max-age=2592000' } })); } catch (e) { /* bộ nhớ đệm không bắt buộc */ }
 }
-async function ptplBytes(env, d, ctx) {              // → Uint8Array (null nếu thiếu / hỏng)
-  if (!d.chunks) return null;
+const r2Key = (id, rev) => `ptpl/${id}/${rev}.pdf`;
+const later = (ctx, pr) => { if (ctx && ctx.waitUntil) ctx.waitUntil(pr); return pr; };
+// Chuyển file đang lưu trong D1 sang kho R2 (nhanh hơn nhiều), rồi xóa các khúc trong D1
+async function ptplToR2(env, d, buf) {
+  if (!env.FILES || d.r2_key) return;
+  const key = r2Key(d.id, d.file_rev);
+  await env.FILES.put(key, buf, { httpMetadata: { contentType: 'application/pdf' } });
+  const u = await env.DB.prepare('UPDATE ptpl SET r2_key=?1, chunks=0 WHERE id=?2 AND file_rev=?3').bind(key, d.id, d.file_rev).run();
+  if (u.meta.changes) await env.DB.prepare('DELETE FROM ptpl_chunks WHERE ptpl_id=?1').bind(d.id).run();
+}
+async function ptplSweepR2(env) {                    // chuyển dần các file cũ (tối đa 3 file mỗi lần)
+  if (!env.FILES) return;
+  const r = await env.DB.prepare('SELECT id, chunks, file_rev, file_size, r2_key FROM ptpl WHERE r2_key IS NULL AND chunks>0 LIMIT 3').all();
+  for (const d of r.results) { try { const buf = await ptplBytes(env, d, null, true); if (buf) await ptplToR2(env, d, buf); } catch (e) { /* thử lại lần sau */ } }
+}
+async function ptplBytes(env, d, ctx, noMove) {      // → Uint8Array (null nếu thiếu / hỏng)
+  if (!d.chunks && !d.r2_key) return null;
   try { const hit = await caches.default.match(ptplCacheKey(d)); if (hit) return new Uint8Array(await hit.arrayBuffer()); } catch (e) { /* không có cache (vd chạy thử) */ }
+  if (d.r2_key && env.FILES) {
+    const obj = await env.FILES.get(d.r2_key);
+    if (obj) {
+      const buf = new Uint8Array(await obj.arrayBuffer());
+      if (buf.length !== d.file_size) return null;
+      later(ctx, ptplCachePut(d, buf.slice()));
+      return buf;
+    }
+    if (!d.chunks) return null;
+  }
   const r = await env.DB.prepare('SELECT data FROM ptpl_chunks WHERE ptpl_id=?1 AND rev=?2 ORDER BY seq').bind(d.id, d.file_rev).all();
   const parts = r.results.map((row) => typeof row.data === 'string' ? b64Bytes(row.data) : row.data instanceof ArrayBuffer ? new Uint8Array(row.data) : Uint8Array.from(row.data));
   if (parts.length !== d.chunks || parts.reduce((a, b) => a + b.length, 0) !== d.file_size) return null;
   const buf = new Uint8Array(d.file_size); let o = 0; for (const b of parts) { buf.set(b, o); o += b.length; }
   const put = ptplCachePut(d, buf.slice());
   if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
-  if (r.results.some((row) => typeof row.data !== 'string')) {   // file tải lên trước bản này (BLOB) → chuyển sang base64 cho lần sau
+  if (env.FILES && !noMove) { later(ctx, ptplToR2(env, d, buf.slice()).catch(() => {})); return buf; }
+  if (!env.FILES && r.results.some((row) => typeof row.data !== 'string')) {   // file tải lên trước bản này (BLOB) → chuyển sang base64 cho lần sau
     const up = env.DB.batch(parts.map((u, k) => env.DB.prepare('UPDATE ptpl_chunks SET data=?1 WHERE ptpl_id=?2 AND rev=?3 AND seq=?4').bind(bytesB64(u), d.id, d.file_rev, k))).catch(() => {});
     if (ctx && ctx.waitUntil) ctx.waitUntil(up);
   }
@@ -822,6 +848,12 @@ async function servePublicProposal(req, env, url, me, ctx) {
   }
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(seg)) return notFound();
   const row = await env.DB.prepare(`SELECT s.*, u.name AS user_name, u.email AS user_email FROM proposal_shares s JOIN users u ON u.id=s.user_id WHERE s.token=?1`).bind(seg).first();
+  if (row && rest === 'file.pdf' && !getProposal(row.proposal_id)) {   // file PDF: đi thẳng, bớt truy vấn để tải nhanh
+    if (row.revoked || row.expires_at < now()) return notFound();
+    const d = await env.DB.prepare('SELECT id, chunks, file_rev, file_size, r2_key FROM ptpl WHERE id=?1').bind(row.proposal_id).first();
+    const out = d && (await ptplBytes(env, d, ctx));
+    return out ? pdfResponse(req, d, out) : notFound();
+  }
   if (row && !getProposal(row.proposal_id)) await loadCustom(env);
   const p = row && getProp(row.proposal_id);
   if (!row || !p) return notFound();
@@ -842,7 +874,7 @@ async function servePublicProposal(req, env, url, me, ctx) {
   }
   if (p.kind === 'pdf') {                           // proposal tải lên: trang xem PDF + chữ điền theo ô
     if (rest === 'file.pdf') {
-      const d = await env.DB.prepare('SELECT id, chunks, file_rev, file_size FROM ptpl WHERE id=?1').bind(p.id).first();
+      const d = await env.DB.prepare('SELECT id, chunks, file_rev, file_size, r2_key FROM ptpl WHERE id=?1').bind(p.id).first();
       const out = d && (await ptplBytes(env, d, ctx));
       return out ? pdfResponse(req, d, out) : notFound();
     }
@@ -1647,6 +1679,7 @@ async function api(req, env, url, me, ctx) {
     const cfg = await getSettings(env);
     await loadOrg(env);                                // tên chức danh mới nhất cho phần tư vấn viên
     await loadCustom(env);
+    if (env.FILES && [...CUSTOM_PROPS.values()].some((x) => x.ready && !x.r2)) ctx.waitUntil(ptplSweepR2(env).catch(() => {}));
     const mgr = canPtpl(me);                           // người quản lý mẫu thấy cả mẫu đang ẩn / chưa có file
     const custom = [...CUSTOM_PROPS.values()].filter((x) => !x.deleted && (mgr || (x.active && x.ready)));
     return json({ proposals: [...PROPOSALS, ...custom], ptpl_fields: PTPL_FIELDS, ptpl_max_mb: PTPL_MAX_MB, shares: r.results.map((x) => shareView(x, url)), mail_ready: !!mailReady(env, cfg), mail_mode: mailReady(env, cfg),
@@ -1726,12 +1759,15 @@ async function api(req, env, url, me, ctx) {
     if (!m[2] && method === 'DELETE') {             // còn đường dẫn đang hiệu lực → chỉ ẩn khỏi danh sách để khách vẫn xem được
       const live = await env.DB.prepare('SELECT COUNT(*) AS n FROM proposal_shares WHERE proposal_id=?1 AND revoked=0 AND expires_at>?2').bind(d.id, t).first();
       if (live.n) await env.DB.prepare('UPDATE ptpl SET deleted=1, active=0, updated_by=?1, updated_at=?2 WHERE id=?3').bind(me.id, t, d.id).run();
-      else await env.DB.batch([env.DB.prepare('DELETE FROM ptpl_chunks WHERE ptpl_id=?1').bind(d.id), env.DB.prepare('DELETE FROM ptpl WHERE id=?1').bind(d.id)]);
+      else {
+        await env.DB.batch([env.DB.prepare('DELETE FROM ptpl_chunks WHERE ptpl_id=?1').bind(d.id), env.DB.prepare('DELETE FROM ptpl WHERE id=?1').bind(d.id)]);
+        if (d.r2_key && env.FILES) ctx.waitUntil(env.FILES.delete(d.r2_key).catch(() => {}));
+      }
       return json({ ok: true, kept_for_links: live.n });
     }
     if (!m[2] && method === 'PUT') {
       const v = cleanMeta(body); if (v.error) return bad(v.error);
-      if (v.active && !d.chunks) return bad('Cần tải file PDF trước khi hiển thị cho nhân viên.');
+      if (v.active && !d.chunks && !d.r2_key) return bad('Cần tải file PDF trước khi hiển thị cho nhân viên.');
       await env.DB.prepare(`UPDATE ptpl SET title=?1, short=?2, description=?3, lang=?4, version=?5, email_subject=?6, pdf_name=?7, active=?8, updated_by=?9, updated_at=?10 WHERE id=?11`)
         .bind(v.title, v.short, v.description, v.lang, v.version, v.email_subject, v.pdf_name, v.active, me.id, t, d.id).run();
       return json({ ok: true });
@@ -1751,12 +1787,22 @@ async function api(req, env, url, me, ctx) {
       const pages = Math.max(0, Math.min(9999, parseInt(req.headers.get('x-pages') || '0', 10) || 0));
       const rev = d.file_rev + 1, n = Math.ceil(buf.length / DOC_CHUNK);
       const name = String(decodeURIComponent(req.headers.get('x-file-name') || 'proposal.pdf')).replace(/[\r\n"\\/]/g, '').slice(0, 160);
-      const ins = [];
-      for (let k = 0; k < n; k++) ins.push(env.DB.prepare('INSERT INTO ptpl_chunks (ptpl_id, rev, seq, data) VALUES (?1,?2,?3,?4)').bind(d.id, rev, k, bytesB64(buf.subarray(k * DOC_CHUNK, (k + 1) * DOC_CHUNK))));
-      for (let k = 0; k < ins.length; k += 10) await env.DB.batch(ins.slice(k, k + 10));
-      await env.DB.batch([
-        env.DB.prepare('UPDATE ptpl SET file_name=?1, file_size=?2, chunks=?3, file_rev=?4, pages=?5, updated_by=?6, updated_at=?7 WHERE id=?8').bind(name, buf.length, n, rev, pages, me.id, t, d.id),
-        env.DB.prepare('DELETE FROM ptpl_chunks WHERE ptpl_id=?1 AND rev<>?2').bind(d.id, rev)]);
+      const oldKey = d.r2_key;
+      if (env.FILES) {                                // kho R2: lưu nguyên file
+        const key = r2Key(d.id, rev);
+        await env.FILES.put(key, buf, { httpMetadata: { contentType: 'application/pdf' } });
+        await env.DB.batch([
+          env.DB.prepare('UPDATE ptpl SET file_name=?1, file_size=?2, chunks=0, r2_key=?3, file_rev=?4, pages=?5, updated_by=?6, updated_at=?7 WHERE id=?8').bind(name, buf.length, key, rev, pages, me.id, t, d.id),
+          env.DB.prepare('DELETE FROM ptpl_chunks WHERE ptpl_id=?1').bind(d.id)]);
+      } else {                                        // chưa có R2: chia khúc lưu trong D1
+        const ins = [];
+        for (let k = 0; k < n; k++) ins.push(env.DB.prepare('INSERT INTO ptpl_chunks (ptpl_id, rev, seq, data) VALUES (?1,?2,?3,?4)').bind(d.id, rev, k, bytesB64(buf.subarray(k * DOC_CHUNK, (k + 1) * DOC_CHUNK))));
+        for (let k = 0; k < ins.length; k += 10) await env.DB.batch(ins.slice(k, k + 10));
+        await env.DB.batch([
+          env.DB.prepare('UPDATE ptpl SET file_name=?1, file_size=?2, chunks=?3, r2_key=NULL, file_rev=?4, pages=?5, updated_by=?6, updated_at=?7 WHERE id=?8').bind(name, buf.length, n, rev, pages, me.id, t, d.id),
+          env.DB.prepare('DELETE FROM ptpl_chunks WHERE ptpl_id=?1 AND rev<>?2').bind(d.id, rev)]);
+      }
+      if (oldKey && env.FILES) ctx.waitUntil(env.FILES.delete(oldKey).catch(() => {}));
       ctx.waitUntil(ptplCachePut({ id: d.id, file_rev: rev, file_size: buf.length }, buf));   // làm nóng bộ nhớ đệm
       return json({ ok: true, size: buf.length });
     }

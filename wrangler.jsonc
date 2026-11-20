@@ -2,6 +2,7 @@
 // - main: máy chủ (đăng nhập, phân quyền, API)
 // - assets: giao diện trong public/, chỉ phục vụ sau khi đăng nhập (run_worker_first)
 // - d1_databases: cơ sở dữ liệu D1, Cloudflare tự tạo ở lần deploy đầu
+// - r2_buckets: kho file R2 (proposal PDF), Cloudflare tự tạo ở lần deploy đầu
 {
   "name": "redsun-quy-che",
   "main": "worker/index.js",
@@ -14,6 +15,10 @@
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "redsun-quy-che-db" }
+  ],
+  // r2_buckets: kho lưu file PDF của proposal tải lên (Cloudflare tự tạo bucket ở lần deploy đầu)
+  "r2_buckets": [
+    { "binding": "FILES" }
   ],
   "observability": { "enabled": true },
   // Giữ các biến/secret đặt trên Dashboard (vd SETTINGS_KEY) khi deploy từ GitHub
