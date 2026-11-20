@@ -33,6 +33,12 @@
       el.addEventListener('click', function (e) { e.stopPropagation(); });
     }
   });
+  // Ẩn cả cụm khi thông tin trống, vd <span data-show-if="sobg">Số báo giá …</span>
+  [].forEach.call(document.querySelectorAll('[data-show-if]'), function (el) {
+    var keys = el.getAttribute('data-show-if').split(',');
+    var has = keys.some(function (k) { k = k.trim(); return (given[k] != null && given[k] !== '') || q.get(k); });
+    if (!has) el.style.display = 'none';
+  });
   if (!locked && !embedded) body.classList.add('rs-edit');
 
   /* ---------- Mã QR gọi điện: <img data-qr="sdt"> lấy số trong [data-field="sdt"] ---------- */

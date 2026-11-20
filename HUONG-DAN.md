@@ -115,6 +115,10 @@ Mọi nhân viên đều dùng được. Mỗi proposal có 3 nút:
 
 **Thêm proposal mới**: đặt bộ trình chiếu vào `public/proposal/<mã>/` gồm `index.html` (nội bộ, có ghi chú trong thẻ `<aside>`), `client.html` (gửi khách, không có `<aside>`) và `assets/`, dùng chung `public/proposal/_shared/` (trình chiếu, xuất PDF, font). Sau đó khai báo một dòng trong `public/proposal/catalog.js`.
 
+### Thông tin khách hàng & số báo giá
+- Khi **Gửi khách hàng** hoặc **Xuất PDF**: nhập thêm **Email** và **SĐT khách hàng**. Proposal có sẵn in dòng "SĐT · Email" dưới tên doanh nghiệp ở trang bìa; proposal PDF tải lên dùng ô "Email khách hàng", "SĐT khách hàng".
+- **Số báo giá** cấp tự động theo dạng `NămThángNgày-số thứ tự` (vd `20261120-001`), đếm lại từ 001 mỗi ngày (giờ Việt Nam), dùng chung toàn công ty. Mỗi lần gửi = 1 số; Xuất PDF cũng cấp 1 số (bấm tạo lại cho cùng khách không tốn thêm số). Số báo giá in ở trang bìa (cạnh "Phiên bản tài liệu"), trong email gửi khách và ở danh sách "Proposal đã gửi". Proposal PDF tải lên: đặt ô "Số báo giá".
+
 ### Proposal PDF tải lên (không cần lập trình)
 Dùng khi có proposal mới thiết kế bằng PowerPoint / Canva / Word.
 1. Thiết kế proposal, **chừa chỗ trống** ở chỗ cần điền (vd "Kính gửi: ______", tên tư vấn viên ở trang cuối), xuất ra **PDF** (tối đa 25 MB).

@@ -1755,7 +1755,7 @@
         const rows = d.shares.filter((s) => !q || [s.customer_company, s.customer_name, s.customer_email, s.user_name].join(' ').toLowerCase().includes(q));
         document.getElementById('pr-rows').innerHTML = rows.length ? rows.map((s) => {
           const mine = s.user_id === S.me.id, can = (mine || isAll()) && canDo('proposal', 'add'), live = !s.revoked && !s.expired;
-          return `<tr><td class="py-2.5 px-3"><b class="text-slate-900">${esc(s.customer_company)}</b><br><span class="text-[11px] text-slate-500">${esc([s.customer_name, s.customer_email].filter(Boolean).join(' • ') || 'Chỉ tạo đường dẫn')}</span></td>
+          return `<tr><td class="py-2.5 px-3"><b class="text-slate-900">${esc(s.customer_company)}</b><br><span class="text-[11px] text-slate-500">${esc([s.customer_name, s.customer_email, s.customer_phone].filter(Boolean).join(' • ') || 'Chỉ tạo đường dẫn')}</span>${s.quote_no ? `<br><span class="text-[11px] font-mono text-slate-600">BG ${esc(s.quote_no)}</span>` : ''}</td>
             <td class="py-2.5 px-3 text-xs">${esc(s.proposal_title)}<br><span class="text-slate-400">${fmtDT(s.created_at)}</span></td>
             ${many ? `<td class="py-2.5 px-3 text-xs">${esc(s.user_name)}</td>` : ''}
             <td class="py-2.5 px-3">${pill(shareStatus(s))}${s.email_error ? `<div class="text-[11px] text-redsun-700 mt-1 max-w-xs">${esc(s.email_error)}</div>` : ''}</td>
@@ -1824,24 +1824,36 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           ${field('Người nhận', `<input id="pdf-nguoi" maxlength="120" class="${inputCls}" placeholder="Anh Nguyễn Văn Minh – Giám đốc">`)}
           ${field('Doanh nghiệp khách hàng', `<input id="pdf-kh" maxlength="160" class="${inputCls}" placeholder="Công ty Cổ phần ABC">`)}
+          ${field('Email khách hàng', `<input id="pdf-khemail" type="email" maxlength="120" class="${inputCls}" placeholder="khachhang@congty.vn">`)}
+          ${field('SĐT khách hàng', `<input id="pdf-khsdt" maxlength="40" class="${inputCls}" placeholder="0909 123 456">`)}
         </div>
-        <p class="text-xs text-slate-500">${prKind(pid) === 'pdf' ? 'Thông tin nhân viên' : 'Slide cuối ghi chuyên viên'}: <b>${esc([prMe(pid).tv, prMe(pid).sdt].filter(Boolean).join(' • '))}</b> (theo hồ sơ nhân viên).</p>
+        <p class="text-xs text-slate-500">${prKind(pid) === 'pdf' ? 'Thông tin nhân viên' : 'Slide cuối ghi chuyên viên'}: <b>${esc([prMe(pid).tv, prMe(pid).sdt].filter(Boolean).join(' • '))}</b> (theo hồ sơ nhân viên).
+          <b>Số báo giá</b> cấp tự động khi tạo PDF (dạng NămThángNgày-số thứ tự, vd ${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-001).</p>
         <div id="pdf-prog" class="hidden"><div class="h-2 rounded-full bg-slate-100 overflow-hidden"><div id="pdf-bar" class="h-2 bg-redsun-700" style="width:0%"></div></div><p id="pdf-txt" class="text-xs text-slate-500 mt-1"></p></div>
         ${errBox('pdf-err')}
         <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="${BTN_S}">Đóng</button><button id="pdf-go" class="${BTN_P}">Tạo PDF</button></div>
       </form>`);
+    let quote = null, quoteKey = '';                       // giữ một số báo giá cho cùng khách trong lần mở cửa sổ này
     document.getElementById('pdf-form').onsubmit = async (e) => {
       e.preventDefault();
       const go = document.getElementById('pdf-go'); go.disabled = true;
       document.getElementById('pdf-prog').classList.remove('hidden');
+      const g = (id) => document.getElementById(id).value.trim();
       try {
-        const { blob, name } = await buildPdf(pid, { ...prMe(pid), kh: document.getElementById('pdf-kh').value.trim(), nguoi: document.getElementById('pdf-nguoi').value.trim() }, (k, n) => {
+        const key = [g('pdf-kh'), g('pdf-nguoi'), g('pdf-khemail'), g('pdf-khsdt')].join('|');
+        if (!quote || key !== quoteKey) {
+          quote = (await api('/api/proposals/quote-no', { method: 'POST', body: { proposal_id: pid, customer: g('pdf-kh') || g('pdf-nguoi') } })).quote_no;
+          quoteKey = key;
+        }
+        const f = { ...prMe(pid), kh: g('pdf-kh'), nguoi: g('pdf-nguoi'), khemail: g('pdf-khemail'), khsdt: g('pdf-khsdt'),
+          khlh: [g('pdf-khsdt'), g('pdf-khemail')].filter(Boolean).join(' · '), sobg: quote };
+        const { blob, name } = await buildPdf(pid, f, (k, n) => {
           document.getElementById('pdf-bar').style.width = Math.round(k / n * 100) + '%';
           document.getElementById('pdf-txt').textContent = k < n ? `Đang tạo trang ${k + 1}/${n}…` : 'Hoàn tất.';
         });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
         setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
-        document.getElementById('pdf-txt').textContent = `Đã tải ${name} (${(blob.size / 1048576).toFixed(1)} MB).`;
+        document.getElementById('pdf-txt').innerHTML = `Đã tải ${esc(name)} (${(blob.size / 1048576).toFixed(1)} MB) • Số báo giá <b>${esc(quote)}</b>.`;
       } catch (err) { showErr('pdf-err', 'Không tạo được PDF: ' + err.message); }
       finally { go.disabled = false; }
     };
@@ -1854,7 +1866,11 @@
           ${field('Người nhận', `<input id="sd-name" maxlength="120" class="${inputCls}" placeholder="Anh Nguyễn Văn Minh">`, 'Hiện ở trang bìa ("Kính gửi") và lời chào email.')}
           ${field('Doanh nghiệp khách hàng *', `<input id="sd-company" required maxlength="160" class="${inputCls}" placeholder="Công ty Cổ phần ABC">`, 'Hiện ở trang bìa và tiêu đề email.')}
         </div>
-        ${field('Email khách hàng' + (mailOk ? ' *' : ''), `<input id="sd-email" type="text" class="${inputCls}" placeholder="khachhang@congty.vn">`, 'Nhiều email: cách nhau bằng dấu phẩy.')}
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="sm:col-span-2">${field('Email khách hàng' + (mailOk ? ' *' : ''), `<input id="sd-email" type="text" class="${inputCls}" placeholder="khachhang@congty.vn">`, 'Nhiều email: cách nhau bằng dấu phẩy. Email đầu tiên in trên proposal.')}</div>
+          ${field('SĐT khách hàng', `<input id="sd-phone" maxlength="40" class="${inputCls}" placeholder="0909 123 456">`, 'In trên proposal.')}
+        </div>
+        <p class="text-xs text-slate-500"><b>Số báo giá</b> cấp tự động khi gửi (NămThángNgày-số thứ tự) và in trên proposal, email.</p>
         ${field('CC thêm (tùy chọn)', `<input id="sd-cc" class="${inputCls}" placeholder="truongphong@redsun.vn">`, `Bạn (${esc(me.email)}) luôn nhận bản CC; khách trả lời sẽ về email của bạn.`)}
         ${field('Lời nhắn', `<textarea id="sd-msg" rows="4" maxlength="2000" class="${inputCls}">${prLang(pid) === 'en' ? `Thank you for taking the time to speak with Redsun. Please find attached our ${esc(p.short.replace(/\s*\(EN\)$/, ''))} proposal for your review. If you have any questions, please feel free to contact me using the details below.` : `Cảm ơn Quý khách đã dành thời gian trao đổi với Redsun. Em xin gửi Quý khách bản đề xuất ${esc(p.short.replace(/\s*\(VN\)$/, ''))} để tham khảo. Nếu cần trao đổi thêm, Quý khách vui lòng liên hệ em theo thông tin bên dưới.`}</textarea>`)}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
@@ -1879,10 +1895,11 @@
       const cancel = document.querySelector('#send-form button[type="button"]'); if (cancel) cancel.disabled = true;
       try {
         const r = await api('/api/proposals/shares', { method: 'POST', body: { proposal_id: pid, customer_company: v('sd-company'), customer_name: v('sd-name'),
-          customer_email: v('sd-email'), cc: v('sd-cc'), message: v('sd-msg'), days: +v('sd-days'), send_email: sendBox.checked } });
+          customer_email: v('sd-email'), customer_phone: v('sd-phone'), cc: v('sd-cc'), message: v('sd-msg'), days: +v('sd-days'), send_email: sendBox.checked } });
         const sent = r.email_status === 'sent' || r.email_status === 'sent_test';
         openModal(`${modalHead(sent ? 'Đã gửi proposal' : 'Đã tạo đường dẫn')}
           <div class="px-6 py-5 space-y-3 text-sm text-slate-700">
+            ${r.quote_no ? `<p>Số báo giá: <b class="font-mono text-slate-900">${esc(r.quote_no)}</b></p>` : ''}
             ${sent ? `<p>Email đã gửi tới <b>${esc(v('sd-email'))}</b>${r.email_status === 'sent_test' ? ' (chế độ thử nghiệm: chỉ ghi log)' : ''}, bạn nhận bản CC.</p>`
               : r.email_error ? `<div class="p-3 rounded-lg bg-redsun-50 text-redsun-800">Chưa gửi được email: ${esc(r.email_error)}</div>` : '<p>Gửi đường dẫn này cho khách qua Zalo hoặc email riêng:</p>'}
             <div class="flex gap-2"><input id="sd-link" readonly value="${esc(r.link)}" class="${inputCls} font-mono text-xs"><button id="sd-copy" class="${BTN_S}">Sao chép</button></div>
@@ -1985,7 +2002,8 @@
     const FL = (PR.data && PR.data.ptpl_fields) || {};
     const N = doc.numPages, pages = {}, sizes = {};
     let L = JSON.parse(JSON.stringify(P.layout || [])), cur = 0, sel = null, dirty = false, plain = false;
-    const sample = prSample(id, { kh: P.lang === 'en' ? 'ABC Technology Joint Stock Company' : 'Công ty Cổ phần Công nghệ ABC', nguoi: P.lang === 'en' ? 'Mr. John Smith – CEO' : 'Anh Nguyễn Văn Minh – Giám đốc' });
+    const sample = prSample(id, { kh: P.lang === 'en' ? 'ABC Technology Joint Stock Company' : 'Công ty Cổ phần Công nghệ ABC', nguoi: P.lang === 'en' ? 'Mr. John Smith – CEO' : 'Anh Nguyễn Văn Minh – Giám đốc',
+      khemail: 'minh.nguyen@abc.vn', khsdt: '0909 888 777', sobg: new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-001' });
     const SW = ['#0f172a', '#003049', '#ba0000', '#edad32', '#ffffff', '#475569'];
     const uid = () => Math.random().toString(36).slice(2, 10);
     const onPage = (b) => b.page === 0 || b.page === cur + 1;

@@ -8,6 +8,9 @@
 export const PTPL_FIELDS = {
   kh: 'Tên doanh nghiệp khách hàng',
   nguoi: 'Người nhận (khách)',
+  khemail: 'Email khách hàng',
+  khsdt: 'SĐT khách hàng',
+  sobg: 'Số báo giá',
   tv: 'Tên nhân viên',
   cv: 'Chức danh nhân viên',
   sdt: 'SĐT nhân viên',

@@ -351,7 +351,10 @@ async function ensureSchema(env) {
   // Nâng cấp cấu trúc cho dữ liệu đã có (bỏ qua nếu cột đã tồn tại)
   for (const sql of ['ALTER TABLE users ADD COLUMN cb_ratio REAL', 'ALTER TABLE kpis ADD COLUMN cb REAL', 'ALTER TABLE sessions ADD COLUMN last_seen INTEGER',
     'ALTER TABLE users ADD COLUMN phone TEXT', 'ALTER TABLE users ADD COLUMN contact_email TEXT', 'ALTER TABLE users ADD COLUMN dept_id TEXT', 'ALTER TABLE dept_titles ADD COLUMN en TEXT',
-    'ALTER TABLE dept_titles ADD COLUMN params TEXT', 'ALTER TABLE title_names ADD COLUMN params TEXT']) {
+    'ALTER TABLE dept_titles ADD COLUMN params TEXT', 'ALTER TABLE title_names ADD COLUMN params TEXT',
+    "ALTER TABLE proposal_shares ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''", "ALTER TABLE proposal_shares ADD COLUMN quote_no TEXT NOT NULL DEFAULT ''",
+    'CREATE TABLE IF NOT EXISTS quote_seq (day TEXT PRIMARY KEY, n INTEGER NOT NULL)',
+    'CREATE TABLE IF NOT EXISTS quote_log (no TEXT PRIMARY KEY, day TEXT NOT NULL, user_id INTEGER, kind TEXT NOT NULL, proposal_id TEXT, customer TEXT, created_at INTEGER NOT NULL)']) {
     try { await env.DB.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(String(e.message))) throw e; }
   }
   // 3 nhóm quyền gốc (giữ đúng quyền admin / manager / staff trước đây)
@@ -628,7 +631,19 @@ const escH = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
 const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const fmtDay = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : '';
 const fmtDayEn = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: 'numeric', month: 'long', year: 'numeric' }) : '';
-const FIELD_KEYS = { kh: 160, nguoi: 120, tv: 80, cv: 80, sdt: 40, email: 120, ct: 160, ctdc: 200, ctdt: 100, cthl: 40, ctemail: 120, ctweb: 120, ngay: 40, han: 40 };
+const FIELD_KEYS = { kh: 160, nguoi: 120, tv: 80, cv: 80, sdt: 40, email: 120, ct: 160, ctdc: 200, ctdt: 100, cthl: 40, ctemail: 120, ctweb: 120, ngay: 40, han: 40,
+  khemail: 120, khsdt: 40, khlh: 180, sobg: 20 };
+
+/* Số báo giá tự động: NămThángNgày-số thứ tự trong ngày (giờ Việt Nam), vd 20261120-001 */
+async function nextQuoteNo(env, info) {
+  const t = now(), day = new Date((t + 7 * 3600) * 1000).toISOString().slice(0, 10).replace(/-/g, '');
+  const r = await env.DB.prepare('INSERT INTO quote_seq (day, n) VALUES (?1, 1) ON CONFLICT(day) DO UPDATE SET n = n + 1 RETURNING n').bind(day).first();
+  const no = `${day}-${String(r.n).padStart(3, '0')}`;
+  await env.DB.prepare('INSERT OR IGNORE INTO quote_log (no, day, user_id, kind, proposal_id, customer, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)')
+    .bind(no, day, info.user_id, info.kind, info.proposal_id || null, info.customer || '', t).run();
+  return no;
+}
+const khContact = (sdt, email) => [sdt, email].filter(Boolean).join(' · ');
 
 /* Proposal tải lên (PDF): đọc từ bảng ptpl, dùng chung danh mục với proposal có sẵn (catalog.js) */
 let CUSTOM_PROPS = new Map();
@@ -661,6 +676,7 @@ function shareView(r, url) {
   const p = getProp(r.proposal_id);
   return { id: r.id, proposal_id: r.proposal_id, proposal_title: p ? p.short : r.proposal_id, user_id: r.user_id, user_name: r.user_name,
     customer_company: r.customer_company, customer_name: r.customer_name, customer_email: r.customer_email, cc: r.cc,
+    customer_phone: r.customer_phone || '', quote_no: r.quote_no || '',
     email_status: r.email_status, email_error: r.email_error, sent_at: r.sent_at, created_at: r.created_at, expires_at: r.expires_at,
     revoked: !!r.revoked, expired: r.expires_at < now(), views: r.views, first_viewed_at: r.first_viewed_at, last_viewed_at: r.last_viewed_at,
     link: shareLink(url, r.token) };
@@ -714,20 +730,22 @@ async function emailProposal(env, url, row, owner) {
   const khach = row.customer_company || row.customer_name || (en ? 'your company' : 'Quý khách');
   const subject = (p.email_subject || p.title).replace(/\{khach\}/g, khach).slice(0, 200);
   const day = en ? fmtDayEn(row.expires_at) : fmtDay(row.expires_at);
+  const qn = row.quote_no ? (en ? `Quote No. <b>${escH(row.quote_no)}</b>. ` : `Số báo giá: <b>${escH(row.quote_no)}</b>. `) : '';
+  const qt = row.quote_no ? (en ? `Quote No. ${row.quote_no}. ` : `Số báo giá: ${row.quote_no}. `) : '';
   const T = en ? {
     greet: row.customer_name ? `Dear ${row.customer_name},` : 'Dear Sir/Madam,',
     msg: `Thank you for your interest in ${co}'s solutions. Please find our ${name} proposal for your review.`,
     btn: `View the ${name} proposal`,
-    note: `On the proposal page you can present it or click <b>Download PDF</b> to save a copy. The link is valid until <b>${day}</b>.`,
+    note: `${qn}On the proposal page you can present it or click <b>Download PDF</b> to save a copy. The link is valid until <b>${day}</b>.`,
     alt: 'If the button does not work, open this link:', bye: 'Best regards,',
-    textLink: `View the ${name} proposal`, textNote: `The link is valid until ${day}. Use the Download PDF button on the page to save a copy.`
+    textLink: `View the ${name} proposal`, textNote: `${qt}The link is valid until ${day}. Use the Download PDF button on the page to save a copy.`
   } : {
     greet: row.customer_name ? `Kính gửi ${row.customer_name},` : 'Kính gửi Quý khách,',
     msg: `Cảm ơn Quý khách đã quan tâm đến giải pháp của ${co}. Chúng tôi xin gửi Quý khách bản đề xuất ${name} để tham khảo.`,
     btn: `Xem đề xuất ${name}`,
-    note: `Trên trang đề xuất, Quý khách có thể trình chiếu hoặc bấm <b>Tải PDF</b> để lưu bản PDF. Đường dẫn có hiệu lực đến <b>${day}</b>.`,
+    note: `${qn}Trên trang đề xuất, Quý khách có thể trình chiếu hoặc bấm <b>Tải PDF</b> để lưu bản PDF. Đường dẫn có hiệu lực đến <b>${day}</b>.`,
     alt: 'Nếu nút không hoạt động, Quý khách mở đường dẫn:', bye: 'Trân trọng,',
-    textLink: `Xem đề xuất ${name}`, textNote: `Đường dẫn có hiệu lực đến ${day}. Trên trang có nút Tải PDF.`
+    textLink: `Xem đề xuất ${name}`, textNote: `${qt}Đường dẫn có hiệu lực đến ${day}. Trên trang có nút Tải PDF.`
   };
   const greet = T.greet;
   const msg = row.message || T.msg;
@@ -814,7 +832,7 @@ async function servePublicProposal(req, env, url, me) {
   const res = await env.ASSETS.fetch(new Request(new URL(`/proposal/${p.id}/client`, url), { method: 'GET' }));
   if (!res.ok) return withHeaders(new Response('Không tải được đề xuất.', { status: 502 }), noStore);
   const inject = `<script>window.RS_LOCKED=true;window.RS_FIELDS=${JSON.stringify(JSON.parse(row.fields || '{}')).replace(/</g, '\\u003c')};</script>`;
-  const page = (await res.text()).replace('<script src="../_shared/viewer.js">', inject + '<script src="../_shared/viewer.js">');
+  const page = (await res.text()).replace(/<script src="\.\.\/_shared\/viewer\.js(\?[^"]*)?">/, (m) => inject + m);
   if (!me && req.method === 'GET') {                // không tính lượt xem khi nhân viên (đang đăng nhập) mở thử
     const t = now();
     await env.DB.prepare('UPDATE proposal_shares SET views=views+1, last_viewed_at=?1, first_viewed_at=COALESCE(first_viewed_at, ?1) WHERE id=?2').bind(t, row.id).run();
@@ -1614,16 +1632,24 @@ async function api(req, env, url, me, ctx) {
     if (emails.length > 5 || cc.length > 10) return bad('Tối đa 5 email nhận và 10 email CC.');
     const days = intSetting(body.days, 30, 1, 90);
     await loadOrg(env);
+    const customer_phone = clip(body.customer_phone, 40);
     const t = now(), en = propLang(prop) === 'en';
+    const quote_no = await nextQuoteNo(env, { user_id: me.id, kind: 'send', proposal_id: prop.id, customer: customer_company });
     const fields = proposalFields(await getSettings(env), me, { kh: customer_company, nguoi: customer_name,
+      khemail: emails[0] || '', khsdt: customer_phone, khlh: khContact(customer_phone, emails[0] || ''), sobg: quote_no,
       ngay: en ? fmtDayEn(t) : fmtDay(t), han: en ? fmtDayEn(t + days * 86400) : fmtDay(t + days * 86400) }, propLang(prop));
     const token = b64(crypto.getRandomValues(new Uint8Array(24))).replace(/[+/=]/g, (c) => ({ '+': '-', '/': '_', '=': '' }[c]));
-    const r = await env.DB.prepare(`INSERT INTO proposal_shares (token,proposal_id,user_id,customer_company,customer_name,customer_email,cc,message,fields,created_at,expires_at)
-        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)`).bind(token, prop.id, me.id, customer_company, customer_name, emails.join(', '), cc.join(', '),
-        String(body.message || '').slice(0, 2000).trim(), JSON.stringify(fields), t, t + days * 86400).run();
+    const r = await env.DB.prepare(`INSERT INTO proposal_shares (token,proposal_id,user_id,customer_company,customer_name,customer_email,cc,message,fields,created_at,expires_at,customer_phone,quote_no)
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)`).bind(token, prop.id, me.id, customer_company, customer_name, emails.join(', '), cc.join(', '),
+        String(body.message || '').slice(0, 2000).trim(), JSON.stringify(fields), t, t + days * 86400, customer_phone, quote_no).run();
     const row = await env.DB.prepare('SELECT * FROM proposal_shares WHERE id=?1').bind(r.meta.last_row_id).first();
     const mail = send ? await emailProposal(env, url, row, me) : {};
-    return json({ ok: true, id: row.id, link: shareLink(url, token), ...mail });
+    return json({ ok: true, id: row.id, link: shareLink(url, token), quote_no, ...mail });
+  }
+  if (p === '/api/proposals/quote-no' && method === 'POST') {   // cấp số báo giá khi xuất PDF trong tool
+    if (!can(me, 'proposal', 'view')) return deny('proposal', 'view');
+    const no = await nextQuoteNo(env, { user_id: me.id, kind: 'pdf', proposal_id: clip(body.proposal_id, 60), customer: clip(body.customer, 160) });
+    return json({ ok: true, quote_no: no });
   }
   m = p.match(/^\/api\/proposals\/shares\/(\d+)\/(send|revoke)$/);
   if (m && method === 'POST') {
