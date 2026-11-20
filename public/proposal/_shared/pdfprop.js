@@ -15,9 +15,15 @@
     if (lib) return Promise.resolve(lib);
     return import(PDFJS + 'pdf.min.mjs').then(function (m) { m.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.mjs'; lib = m; return m; });
   }
-  function open(data) {
+  // src: Uint8Array (đã tải sẵn) hoặc { url } – tải theo từng đoạn, hiện được trang đầu trước khi tải xong cả file
+  function open(src, onProgress) {
     return pdfjs().then(function (L) {
-      return L.getDocument({ data: data, cMapUrl: PDFJS + 'cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS + 'standard_fonts/', isEvalSupported: false, enableXfa: false }).promise;
+      var o = { cMapUrl: PDFJS + 'cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS + 'standard_fonts/', isEvalSupported: false, enableXfa: false };
+      if (src && src.url) { o.url = new URL(src.url, location.href).href; o.rangeChunkSize = 262144; o.withCredentials = true; }
+      else o.data = src;
+      var task = L.getDocument(o);
+      if (onProgress) task.onProgress = onProgress;
+      return task.promise;
     });
   }
   // Kích thước trang (đơn vị pt, đúng chiều hiển thị)
@@ -140,6 +146,6 @@
     });
   }
 
-  window.RSPDF = { open: open, renderPage: renderPage, pageSize: pageSize, overlay: overlay, fill: fill, fit: fit, measure: measure,
+  window.RSPDF = { open: open, preload: pdfjs, warmPdf: function () { pdfLibs().catch(function () { libsP = null; }); }, renderPage: renderPage, pageSize: pageSize, overlay: overlay, fill: fill, fit: fit, measure: measure,
     fontsReady: fontsReady, buildPdf: buildPdf, BASE: BASE };
 })();

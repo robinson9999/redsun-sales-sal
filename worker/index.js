@@ -659,13 +659,46 @@ async function loadCustom(env) {
 }
 const getProp = (id) => getProposal(id) || CUSTOM_PROPS.get(id) || null;
 const canPtpl = (me) => can(me, 'ptpl', 'add') || can(me, 'ptpl', 'edit') || can(me, 'ptpl', 'delete');
-async function ptplFile(env, d) {                    // ghép các khúc file PDF đã lưu → ReadableStream (null nếu lỗi)
-  const r = await env.DB.prepare('SELECT data FROM ptpl_chunks WHERE ptpl_id=?1 AND rev=?2 ORDER BY seq').bind(d.id, d.file_rev).all();
-  const parts = r.results.map((row) => row.data instanceof ArrayBuffer ? new Uint8Array(row.data) : Uint8Array.from(row.data));
-  if (!d.chunks || parts.length !== d.chunks || parts.reduce((a, b) => a + b.length, 0) !== d.file_size) return null;
-  return new ReadableStream({ start(c) { for (const b of parts) c.enqueue(b); c.close(); } });
+/* File PDF của proposal tải lên.
+   - Lưu trong D1 thành các khúc ~1 MB, dạng base64 (đọc ra nhanh hơn nhiều so với BLOB – BLOB bị trả về thành mảng số rất nặng).
+   - Sau lần đọc đầu, file được giữ trong bộ nhớ đệm của Cloudflare tại điểm gần khách (Cache API), các lần mở sau không phải đọc D1.
+   - Trả về theo từng đoạn (HTTP Range) để trình xem hiện trang đầu trước khi tải xong cả file. */
+const ptplCacheKey = (d) => `https://ptpl-cache.internal/${d.id}/${d.file_rev}/${d.file_size}`;
+const b64Bytes = (s) => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+function bytesB64(u) { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); }
+async function ptplCachePut(d, buf) {
+  try { await caches.default.put(ptplCacheKey(d), new Response(buf, { headers: { 'content-type': 'application/pdf', 'cache-control': 'public, max-age=2592000' } })); } catch (e) { /* bộ nhớ đệm không bắt buộc */ }
 }
-const pdfHeaders = (d) => ({ 'content-type': 'application/pdf', 'content-length': String(d.file_size), 'cache-control': 'private, no-store', 'content-disposition': 'inline', 'x-content-type-options': 'nosniff' });
+async function ptplBytes(env, d, ctx) {              // → Uint8Array (null nếu thiếu / hỏng)
+  if (!d.chunks) return null;
+  try { const hit = await caches.default.match(ptplCacheKey(d)); if (hit) return new Uint8Array(await hit.arrayBuffer()); } catch (e) { /* không có cache (vd chạy thử) */ }
+  const r = await env.DB.prepare('SELECT data FROM ptpl_chunks WHERE ptpl_id=?1 AND rev=?2 ORDER BY seq').bind(d.id, d.file_rev).all();
+  const parts = r.results.map((row) => typeof row.data === 'string' ? b64Bytes(row.data) : row.data instanceof ArrayBuffer ? new Uint8Array(row.data) : Uint8Array.from(row.data));
+  if (parts.length !== d.chunks || parts.reduce((a, b) => a + b.length, 0) !== d.file_size) return null;
+  const buf = new Uint8Array(d.file_size); let o = 0; for (const b of parts) { buf.set(b, o); o += b.length; }
+  const put = ptplCachePut(d, buf.slice());
+  if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
+  if (r.results.some((row) => typeof row.data !== 'string')) {   // file tải lên trước bản này (BLOB) → chuyển sang base64 cho lần sau
+    const up = env.DB.batch(parts.map((u, k) => env.DB.prepare('UPDATE ptpl_chunks SET data=?1 WHERE ptpl_id=?2 AND rev=?3 AND seq=?4').bind(bytesB64(u), d.id, d.file_rev, k))).catch(() => {});
+    if (ctx && ctx.waitUntil) ctx.waitUntil(up);
+  }
+  return buf;
+}
+function pdfResponse(req, d, buf) {
+  const h = { 'content-type': 'application/pdf', 'accept-ranges': 'bytes', 'content-disposition': 'inline', 'x-content-type-options': 'nosniff', etag: `"${d.file_rev}-${d.file_size}"`,
+    // đường dẫn có ?v=<phiên bản file> → trình duyệt giữ lại, mở lại không tải nữa; thay file thì phiên bản đổi
+    'cache-control': new URL(req.url).searchParams.get('v') === String(d.file_rev) ? 'private, max-age=604800, immutable' : 'private, no-cache' };
+  if (req.headers.get('if-none-match') === h.etag) return new Response(null, { status: 304, headers: h });
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get('range') || '');
+  if (m && (m[1] || m[2])) {
+    const size = buf.length;
+    let a = m[1] ? +m[1] : size - +m[2], b = m[1] && m[2] ? +m[2] : size - 1;
+    a = Math.max(0, a); b = Math.min(size - 1, b);
+    if (a > b) return new Response(null, { status: 416, headers: { ...h, 'content-range': `bytes */${size}` } });
+    return new Response(buf.subarray(a, b + 1), { status: 206, headers: { ...h, 'content-range': `bytes ${a}-${b}/${size}`, 'content-length': String(b - a + 1) } });
+  }
+  return new Response(buf, { headers: { ...h, 'content-length': String(buf.length) } });
+}
 function cleanFields(f) {
   const out = {};
   for (const [k, n] of Object.entries(FIELD_KEYS)) { const v = clip(f && f[k], n); if (v) out[k] = v; }
@@ -774,7 +807,7 @@ async function emailProposal(env, url, row, owner) {
   return { email_status: status, email_error: error };
 }
 // Trang công khai /p/<mã>/…: bản gửi khách (không ghi chú) của một lần chia sẻ
-async function servePublicProposal(req, env, url, me) {
+async function servePublicProposal(req, env, url, me, ctx) {
   const parts = url.pathname.split('/');            // ['', 'p', mã | _shared, ...]
   const seg = parts[2] || '', rest = parts.slice(3).join('/');
   const noStore = { 'cache-control': 'no-store' };
@@ -810,14 +843,14 @@ async function servePublicProposal(req, env, url, me) {
   if (p.kind === 'pdf') {                           // proposal tải lên: trang xem PDF + chữ điền theo ô
     if (rest === 'file.pdf') {
       const d = await env.DB.prepare('SELECT id, chunks, file_rev, file_size FROM ptpl WHERE id=?1').bind(p.id).first();
-      const out = d && (await ptplFile(env, d));
-      return out ? new Response(out, { headers: pdfHeaders(d) }) : notFound();
+      const out = d && (await ptplBytes(env, d, ctx));
+      return out ? pdfResponse(req, d, out) : notFound();
     }
     if (rest && rest !== 'index.html') return notFound();
     const res = await env.ASSETS.fetch(new Request(new URL('/proposal/_shared/pdfviewer', url), { method: 'GET' }));
     if (!res.ok) return withHeaders(new Response('Không tải được đề xuất.', { status: 502 }), noStore);
-    const cfgJs = { title: p.title, lang: p.lang, pdf: 'file.pdf', layout: p.layout, fields: JSON.parse(row.fields || '{}'), pdfName: p.pdf_name, locked: true };
-    const inject = `<script>window.RS_CFG=${JSON.stringify(cfgJs).replace(/</g, '\\u003c')};</script>`;
+    const cfgJs = { title: p.title, lang: p.lang, pdf: 'file.pdf?v=' + p.file_rev, size: p.file_size, layout: p.layout, fields: JSON.parse(row.fields || '{}'), pdfName: p.pdf_name, locked: true };
+    const inject = `<link rel="modulepreload" href="/p/_pdfjs/pdf.min.mjs"><script>window.RS_CFG=${JSON.stringify(cfgJs).replace(/</g, '\\u003c')};</script>`;
     const page = (await res.text()).replace('<!--RS_CFG-->', inject);
     if (!me && req.method === 'GET') {
       const t = now();
@@ -1673,8 +1706,8 @@ async function api(req, env, url, me, ctx) {
       const d = id && await env.DB.prepare('SELECT * FROM ptpl WHERE id=?1').bind(id).first();
       if (!d || (d.deleted && !canPtpl(me)) || (!d.active && !canPtpl(me))) return bad('Không tìm thấy proposal.', 404);
       if (!fileGet) return json({ proposal: ptplView(d) });
-      const out = await ptplFile(env, d);
-      return out ? new Response(out, { headers: pdfHeaders(d) }) : bad('Proposal chưa có file PDF.', 404);
+      const out = await ptplBytes(env, d, ctx);
+      return out ? pdfResponse(req, d, out) : bad('Proposal chưa có file PDF.', 404);
     }
   }
   if (p === '/api/ptpl' && method === 'POST') {
@@ -1719,11 +1752,12 @@ async function api(req, env, url, me, ctx) {
       const rev = d.file_rev + 1, n = Math.ceil(buf.length / DOC_CHUNK);
       const name = String(decodeURIComponent(req.headers.get('x-file-name') || 'proposal.pdf')).replace(/[\r\n"\\/]/g, '').slice(0, 160);
       const ins = [];
-      for (let k = 0; k < n; k++) ins.push(env.DB.prepare('INSERT INTO ptpl_chunks (ptpl_id, rev, seq, data) VALUES (?1,?2,?3,?4)').bind(d.id, rev, k, buf.subarray(k * DOC_CHUNK, (k + 1) * DOC_CHUNK)));
+      for (let k = 0; k < n; k++) ins.push(env.DB.prepare('INSERT INTO ptpl_chunks (ptpl_id, rev, seq, data) VALUES (?1,?2,?3,?4)').bind(d.id, rev, k, bytesB64(buf.subarray(k * DOC_CHUNK, (k + 1) * DOC_CHUNK))));
       for (let k = 0; k < ins.length; k += 10) await env.DB.batch(ins.slice(k, k + 10));
       await env.DB.batch([
         env.DB.prepare('UPDATE ptpl SET file_name=?1, file_size=?2, chunks=?3, file_rev=?4, pages=?5, updated_by=?6, updated_at=?7 WHERE id=?8').bind(name, buf.length, n, rev, pages, me.id, t, d.id),
         env.DB.prepare('DELETE FROM ptpl_chunks WHERE ptpl_id=?1 AND rev<>?2').bind(d.id, rev)]);
+      ctx.waitUntil(ptplCachePut({ id: d.id, file_rev: rev, file_size: buf.length }, buf));   // làm nóng bộ nhớ đệm
       return json({ ok: true, size: buf.length });
     }
   }
@@ -1805,7 +1839,7 @@ export default {
       if (url.pathname.startsWith('/api/')) return withHeaders(await api(req, env, url, me, ctx));
       if (url.pathname === '/p' || url.pathname.startsWith('/p/')) {          // proposal gửi khách (công khai theo mã)
         if (req.method !== 'GET' && req.method !== 'HEAD') return withHeaders(new Response('Method not allowed', { status: 405 }));
-        return await servePublicProposal(req, env, url, me);
+        return await servePublicProposal(req, env, url, me, ctx);
       }
 
       const isLogin = url.pathname === '/login' || url.pathname === '/login.html';

@@ -1689,13 +1689,14 @@
   let rspdfP = null;
   const loadRspdf = () => rspdfP || (rspdfP = new Promise((res, rej) => {
     if (window.RSPDF) return res(window.RSPDF);
-    const s = document.createElement('script'); s.src = '/proposal/_shared/pdfprop.js';
+    const s = document.createElement('script'); s.src = '/proposal/_shared/pdfprop.js?v=2';
     s.onload = () => res(window.RSPDF); s.onerror = () => { rspdfP = null; rej(new Error('Không tải được bộ xử lý PDF.')); };
     document.head.appendChild(s);
     if (!document.querySelector('link[data-rsfont]')) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/proposal/_shared/fonts/fonts.css'; l.dataset.rsfont = '1'; document.head.appendChild(l); }
   }));
   async function ptplBytes(pid) {
-    const r = await fetch(`/api/ptpl/${encodeURIComponent(pid)}/file`, { credentials: 'same-origin' });
+    const rev = prProp(pid).file_rev;
+    const r = await fetch(`/api/ptpl/${encodeURIComponent(pid)}/file${rev ? '?v=' + rev : ''}`, { credentials: 'same-origin' });
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Không tải được file PDF.'); }
     return new Uint8Array(await r.arrayBuffer());
   }
