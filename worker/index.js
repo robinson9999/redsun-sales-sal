@@ -903,7 +903,9 @@ async function servePublicProposal(req, env, url, me, ctx) {
     const res = await env.ASSETS.fetch(new Request(new URL('/proposal/_shared/pdfviewer', url), { method: 'GET' }));
     if (!res.ok) return withHeaders(new Response('Không tải được đề xuất.', { status: 502 }), noStore);
     const cfgJs = { title: p.title, lang: p.lang, pdf: 'file.pdf?v=' + p.file_rev, size: p.file_size, layout: p.layout, fields: JSON.parse(row.fields || '{}'), pdfName: p.pdf_name, locked: true };
-    const inject = `<link rel="modulepreload" href="/vendor/pdfjs/pdf.min.mjs"><script>window.RS_CFG=${JSON.stringify(cfgJs).replace(/</g, '\\u003c')};</script>`;
+    // tải song song ngay từ đầu: thư viện đọc PDF, bộ xử lý nền và file đề xuất (thay vì chờ lần lượt)
+    const inject = `<link rel="preload" as="script" href="/proposal/_shared/pdfprop.js?v=2"><link rel="modulepreload" href="/vendor/pdfjs/pdf.min.mjs">`
+      + `<link rel="preload" as="fetch" crossorigin="use-credentials" href="/vendor/pdfjs/pdf.worker.min.mjs"><script>window.RS_CFG=${JSON.stringify(cfgJs).replace(/</g, '\\u003c')};</script>`;
     const page = directAssets((await res.text()).replace('<!--RS_CFG-->', inject), null);
     if (!me && req.method === 'GET') {
       const t = now();
