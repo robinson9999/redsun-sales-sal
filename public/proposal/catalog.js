@@ -4,13 +4,13 @@
 export const PROPOSALS = [
   {
     id: 'redsun-ai-crm',
-    title: 'Redsun AI CRM – Đề xuất giải pháp 2026 (VN)',
+    title: 'Redsun AI CRM – Giới thiệu giải pháp 2026 (VN)',
     short: 'Redsun AI CRM (VN)',
-    version: '2.7',
-    description: 'Bán hàng, marketing tự động và chăm sóc khách hàng có AI trên nền tảng Redsun BOS. Gồm gói giá Starter / Business / Enterprise và điều kiện báo giá.',
-    slides: 30,
-    updated: '2026-11-15',
-    email_subject: 'Redsun AI CRM – Đề xuất giải pháp cho {khach}',
+    version: '3.0',
+    description: 'Tài liệu giới thiệu giải pháp cho Sales thuyết trình: CRM AI-native bản địa hoá cho Việt Nam, demo theo luồng có lưu đồ và màn hình thật, gói giá Starter / Business / Enterprise.',
+    slides: 45,
+    updated: '2026-11-24',
+    email_subject: 'Redsun AI CRM – Giới thiệu giải pháp cho {khach}',
     pdf_name: 'Redsun-AI-CRM-Proposal-VN',
     lang: 'vi'
   },
