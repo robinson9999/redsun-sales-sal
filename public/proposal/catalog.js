@@ -3,6 +3,18 @@
    rồi khai báo một dòng ở đây. */
 export const PROPOSALS = [
   {
+    id: 'redsun-bos',
+    title: 'Redsun BOS – Giới thiệu giải pháp 2026 (VN)',
+    short: 'Redsun BOS (VN)',
+    version: '1.0',
+    description: 'Hệ điều hành doanh nghiệp tích hợp AI: bối cảnh và chi phí điểm nối, kiến trúc ba lớp, lưu đồ đơn hàng và dòng tiền, 12 phân hệ với màn hình thật, bản địa hoá và chuẩn quốc tế, gói theo ngành, bảng giá tiêu chuẩn, lộ trình triển khai.',
+    slides: 45,
+    updated: '2026-11-27',
+    email_subject: 'Redsun BOS – Giới thiệu giải pháp cho {khach}',
+    pdf_name: 'Redsun-BOS-Proposal-VN',
+    lang: 'vi'
+  },
+  {
     id: 'redsun-ai-crm',
     title: 'Redsun AI CRM – Giới thiệu giải pháp 2026 (VN)',
     short: 'Redsun AI CRM (VN)',
